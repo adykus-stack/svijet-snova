@@ -1,0 +1,6 @@
+{
+  "name": "Svijet snova",
+  "description": "Čarobne i sigurne priče za djecu na bosanskom i njemačkom jeziku uz Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
