@@ -8,6 +8,7 @@ import com.example.ui.AppScreen
 import com.example.ui.MainViewModel
 import com.example.ui.localization.AppLanguage
 import com.example.ui.localization.AppLanguagePreferences
+import com.example.ui.theme.AppTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.*
@@ -42,6 +43,41 @@ class AppLanguageAndGenerationTest {
         store.clear()
         dispatcher.scheduler.runCurrent()
         Dispatchers.resetMain()
+    }
+
+    @Test
+    fun themesAlwaysStartDarkAndMoonlightUsesReadableNightColors() {
+        assertEquals(AppTheme.DARK, viewModel.appTheme.value)
+        assertTrue(viewModel.isNightMode.value)
+        viewModel.setAppTheme(AppTheme.LIGHT)
+        assertFalse(viewModel.isNightMode.value)
+        viewModel.setAppTheme(AppTheme.MOONLIGHT)
+        assertTrue(viewModel.isNightMode.value)
+        assertEquals(AppTheme.MOONLIGHT, viewModel.appTheme.value)
+        store.clear()
+        val restarted = MainViewModel(application)
+        store.put("main", restarted)
+        assertEquals(AppTheme.DARK, restarted.appTheme.value)
+        assertTrue(restarted.isNightMode.value)
+    }
+
+    @Test
+    fun returningFromSettingsRetainsStoryAndSetupChoices() {
+        val story = ActiveStory(title = "Mjesec", config = StoryCreationConfig(heroName = "Hana"),
+            chapters = listOf(Chapter(1, "Početak", "Bila jednom vila.", "Budi dobar.")))
+        viewModel.openStoryFromLibrary(story)
+        viewModel.navigateTo(AppScreen.Settings)
+        viewModel.setAppTheme(AppTheme.MOONLIGHT)
+        viewModel.setAppLanguage(AppLanguage.GERMAN)
+        viewModel.navigateBack()
+        assertEquals(AppScreen.Reader, viewModel.currentScreen.value)
+        assertEquals(story, viewModel.activeStory.value)
+        assertEquals(story.config, viewModel.creationConfig.value)
+        viewModel.navigateTo(AppScreen.Setup)
+        viewModel.navigateTo(AppScreen.Settings)
+        viewModel.navigateBack()
+        assertEquals(AppScreen.Setup, viewModel.currentScreen.value)
+        assertEquals(story.config, viewModel.creationConfig.value)
     }
 
     @Test

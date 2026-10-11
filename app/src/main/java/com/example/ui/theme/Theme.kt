@@ -6,6 +6,7 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
@@ -61,15 +62,23 @@ val DreamShapes = Shapes(
 
 @Composable
 fun SvijetSnovaTheme(
-    darkTheme: Boolean = false,
+    darkTheme: Boolean = true,
+    appTheme: AppTheme? = null,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val selectedTheme = appTheme ?: if (darkTheme) AppTheme.DARK else AppTheme.LIGHT
+    val colorScheme = when (selectedTheme) {
+        AppTheme.LIGHT -> LightColorScheme
+        AppTheme.DARK -> DarkColorScheme
+        AppTheme.MOONLIGHT -> DarkColorScheme.copy(background = Color(0xFF070D21), surface = Color(0xFF172440))
+    }
 
-    MaterialTheme(
+    CompositionLocalProvider(LocalAppTheme provides selectedTheme) {
+      MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
         shapes = DreamShapes,
         content = content
-    )
+      )
+    }
 }

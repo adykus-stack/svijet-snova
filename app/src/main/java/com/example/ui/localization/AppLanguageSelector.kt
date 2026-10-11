@@ -13,7 +13,7 @@ fun AppLanguageSelector(language: AppLanguage, onSelect: (AppLanguage) -> Unit) 
     var expanded by remember { mutableStateOf(false) }
     Surface(tonalElevation = 2.dp) {
         Row(
-            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {

@@ -61,6 +61,9 @@ data class StoryCategory(
 )
 
 object StoryCategories {
+    val family = StoryCategory("family", "Naša porodična priča", "Unsere Familiengeschichte", "📚",
+        "Nastavi svoj svijet priče uz sačuvanu kroniku i poznate likove.",
+        "Setze deine Geschichte mit Chronik und vertrauten Figuren fort.", CatMagic)
     val allCategories = listOf(
         StoryCategory(
             id = "magic",
@@ -151,7 +154,8 @@ object StoryCategories {
             descriptionBs = "Čarobna škrinja bira potpuno neočekivanu i jedinstvenu avanturu!",
             descriptionDe = "Die Zauberkiste wählt eine völlig unerwartete, tolle Überraschung!",
             accentColor = CatSurprise
-        )
+        ),
+        family
     )
 
     fun getById(id: String): StoryCategory =
@@ -171,7 +175,8 @@ data class GeminiVoice(
     val descriptionBs: String,
     val descriptionDe: String,
     val emoji: String,
-    val isOfflineDevice: Boolean = false
+    val isOfflineDevice: Boolean = false,
+    val provider: com.example.data.security.AiProvider = com.example.data.security.AiProvider.GEMINI
 ) {
     val name: String get() = id
     val isOffline: Boolean get() = isOfflineDevice
@@ -249,6 +254,12 @@ object GeminiVoices {
         isOfflineDevice = true
     )
 
+    val openAiVoices = listOf("marin", "cedar", "coral", "nova", "onyx", "fable", "alloy", "ash", "ballad", "echo", "sage", "shimmer", "verse").map { name ->
+        GeminiVoice("openai:$name", "OpenAI · ${name.replaceFirstChar { it.uppercase() }}", "Prirodni AI glas", "Natürliche KI-Stimme",
+            "OpenAI glas za čitanje priča. Probaj izgovor na jeziku svoje priče.",
+            "OpenAI-Stimme zum Vorlesen. Teste die Aussprache in deiner Sprache.", "🎙️", provider = com.example.data.security.AiProvider.OPENAI)
+    }
+
     val allVoices = listOf(
         VOICE_AOEDE,
         VOICE_PUCK,
@@ -257,7 +268,7 @@ object GeminiVoices {
         VOICE_LEDA,
         VOICE_KORE,
         VOICE_OFFLINE
-    )
+    ) + openAiVoices
 
     val ALL_VOICES: List<GeminiVoice> get() = allVoices
 
@@ -299,5 +310,8 @@ data class ActiveStory(
     val chapters: List<Chapter>,
     val currentChapterIndex: Int = 0,
     val isSaved: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val chronicle: String = "",
+    val sourceArchive: String = "",
+    val isSerial: Boolean = false
 )

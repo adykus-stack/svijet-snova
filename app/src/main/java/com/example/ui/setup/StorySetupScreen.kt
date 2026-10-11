@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +30,7 @@ import com.example.data.model.*
 import com.example.ui.components.MagicButton
 import com.example.ui.theme.*
 import kotlin.random.Random
+import com.example.data.security.AiProvider
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -38,7 +40,10 @@ fun StorySetupScreen(
     onGenerateClick: () -> Unit,
     onBackClick: () -> Unit,
     isNightMode: Boolean,
-    modifier: Modifier = Modifier
+    onOpenSettings: () -> Unit = {},
+    modifier: Modifier = Modifier,
+    storyProvider: AiProvider = AiProvider.GEMINI,
+    onStoryProviderChange: (AiProvider) -> Unit = {}
 ) {
     val ui = LocalAppLanguage.current
     val scrollState = rememberScrollState()
@@ -74,6 +79,7 @@ fun StorySetupScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -93,6 +99,9 @@ fun StorySetupScreen(
                         )
                     }
                 },
+                actions = { IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("open_settings")) {
+                    Icon(Icons.Default.Settings, ui.text("Postavke", "Einstellungen"))
+                } },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = if (isNightMode) DreamNightSurface else DreamDaySurface
                 )
@@ -160,6 +169,18 @@ fun StorySetupScreen(
             }
 
             Spacer(modifier = Modifier.height(20.dp))
+
+            Text(ui.text("Ko stvara priču?", "Wer erstellt die Geschichte?"), style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AiProvider.entries.forEach { provider ->
+                    FilterChip(selected = storyProvider == provider, onClick = { onStoryProviderChange(provider) },
+                        label = { Text(provider.label) }, modifier = Modifier.testTag("story_provider_${provider.name}"))
+                }
+            }
+            Text(ui.text("Koristi spremljeni API ključ iz Postavki. Čitanje koristi tvoj početni glas, nezavisno od autora.",
+                "Verwendet den gespeicherten API-Schlüssel aus den Einstellungen. Die Vorlesestimme ist unabhängig vom Autor."),
+                style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(20.dp))
 
             // 1. AGE GROUP SELECTION
             Text(

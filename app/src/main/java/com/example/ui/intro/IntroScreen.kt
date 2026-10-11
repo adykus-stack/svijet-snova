@@ -24,7 +24,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.components.MagicBackground
 import com.example.ui.components.MagicButton
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
@@ -70,24 +69,13 @@ fun IntroScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0F172A),
-                        Color(0xFF1E1B4B),
-                        Color(0xFF3B185F),
-                        Color(0xFF1E293B)
-                    )
-                )
-            )
     ) {
-        MagicBackground(isNightMode = true)
 
         // Skip button at top right
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 48.dp, end = 20.dp),
+                .padding(top = 16.dp, end = 20.dp),
             horizontalArrangement = Arrangement.End
         ) {
             TextButton(
@@ -96,7 +84,7 @@ fun IntroScreen(
             ) {
                 Text(
                     text = ui.text("Preskoči", "Überspringen"),
-                    color = Color.White.copy(alpha = 0.75f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.titleSmall
                 )
             }
@@ -185,7 +173,7 @@ fun IntroScreen(
                     Text(
                         text = ui.text("Dobro došli u", "Willkommen in"),
                         style = MaterialTheme.typography.titleMedium.copy(
-                            color = MagicGoldLight,
+                            color = if (LocalAppTheme.current.isDark) MagicGoldLight else MagicPurple,
                             letterSpacing = 1.sp
                         )
                     )
@@ -196,7 +184,7 @@ fun IntroScreen(
                         text = ui.text("Svijet snova", "Traumwelt"),
                         style = MaterialTheme.typography.headlineLarge.copy(
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onBackground,
                             fontSize = 36.sp
                         ),
                         textAlign = TextAlign.Center
@@ -207,7 +195,7 @@ fun IntroScreen(
                     Text(
                         text = ui.text("Mjesto gdje svaka mašta postaje priča.", "Wo jede Fantasie zu einer Geschichte wird."),
                         style = MaterialTheme.typography.bodyLarge.copy(
-                            color = Color(0xFFE2E8F0),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 18.sp
                         ),
                         textAlign = TextAlign.Center

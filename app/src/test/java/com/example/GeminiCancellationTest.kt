@@ -71,4 +71,9 @@ class GeminiCancellationTest {
         it.generateSpeech("Bila jednom vila.", StoryLanguage.BOSNIAN, "Aoede")
         Unit
     }
+
+    @Test fun cancellingChronicleStopsItsHttpRequest() = assertRequestCanBeCancelled {
+        it.updateChronicle("Hana je sestra.", "Pronašli su plavi ključ.")
+        Unit
+    }
 }

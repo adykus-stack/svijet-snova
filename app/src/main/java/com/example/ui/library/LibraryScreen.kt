@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,10 +46,14 @@ fun LibraryScreen(
     onBackClick: () -> Unit,
     onCreateNewStory: () -> Unit,
     isNightMode: Boolean,
-    modifier: Modifier = Modifier
+    onOpenSettings: () -> Unit = {},
+    modifier: Modifier = Modifier,
+    initialCategory: String? = null
 ) {
     val ui = LocalAppLanguage.current
     var storyToDelete by remember { mutableStateOf<StoryEntity?>(null) }
+    var categoryFilter by remember(initialCategory) { mutableStateOf(initialCategory) }
+    val filteredStories = savedStories.filter { categoryFilter == null || it.categoryId == categoryFilter }
 
     storyToDelete?.let { story ->
         DeleteConfirmationDialog(
@@ -63,6 +69,7 @@ fun LibraryScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -79,6 +86,9 @@ fun LibraryScreen(
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = ui.text("Nazad", "Zurück"))
                     }
                 },
+                actions = { IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("open_settings")) {
+                    Icon(Icons.Default.Settings, ui.text("Postavke", "Einstellungen"))
+                } },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = if (isNightMode) DreamNightSurface else DreamDaySurface
                 )
@@ -135,7 +145,16 @@ fun LibraryScreen(
                 contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(savedStories, key = { it.id }) { storyEntity ->
+                item {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item { FilterChip(categoryFilter == null, onClick = { categoryFilter = null }, label = { Text(ui.text("Sve", "Alle")) }) }
+                        items(StoryCategories.allCategories.filter { c -> savedStories.any { it.categoryId == c.id } }) { c ->
+                            FilterChip(categoryFilter == c.id, onClick = { categoryFilter = c.id }, label = { Text(ui.text(c.titleBs, c.titleDe)) })
+                        }
+                    }
+                }
+                if (filteredStories.isEmpty()) item { Text(ui.text("Nema sačuvanih priča u ovoj kategoriji.", "Keine gespeicherten Geschichten in dieser Kategorie.")) }
+                items(filteredStories, key = { it.id }) { storyEntity ->
                     val category = StoryCategories.getById(storyEntity.categoryId)
                     val dateFormatted = remember(storyEntity.createdAt) {
                         val sdf = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
@@ -210,7 +229,8 @@ fun LibraryScreen(
                                 Spacer(modifier = Modifier.height(2.dp))
 
                                 Text(
-                                    text = ui.text("Junak: ", "Hauptfigur: ") + storyEntity.heroName.ifBlank { ui.text("Mali avanturist", "Kleiner Abenteurer") },
+                                    text = if (storyEntity.isSerial) ui.text("Serija · ${storyEntity.toActiveStory().chapters.size} poglavlja · kronika sačuvana", "Serie · ${storyEntity.toActiveStory().chapters.size} Kapitel · Chronik gespeichert")
+                                        else ui.text("Junak: ", "Hauptfigur: ") + storyEntity.heroName.ifBlank { ui.text("Mali avanturist", "Kleiner Abenteurer") },
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         color = if (isNightMode) DreamNightTextSec else DreamDayTextSec
                                     )

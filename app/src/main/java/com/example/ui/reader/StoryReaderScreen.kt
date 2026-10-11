@@ -50,6 +50,7 @@ import com.example.tts.TtsState
 import com.example.ui.components.MagicButton
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
+import com.example.data.security.AiProvider
 
 enum class StoryFontSize(val label: String, val fontSize: TextUnit, val lineHeight: TextUnit) {
     MEDIUM("Srednje", 18.sp, 28.sp),
@@ -85,9 +86,13 @@ fun StoryReaderScreen(
     onFinishStoryClick: () -> Unit,
     onTranslateStoryClick: () -> Unit,
     isNightMode: Boolean,
-    onToggleNightMode: () -> Unit,
+    onOpenSettings: () -> Unit,
     onBackClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onContinueSerial: () -> Unit = {},
+    onSaveChronicle: (String) -> Unit = {},
+    storyProvider: AiProvider = AiProvider.GEMINI,
+    onStoryProviderChange: (AiProvider) -> Unit = {}
 ) {
     val ui = LocalAppLanguage.current
     val context = LocalContext.current
@@ -96,6 +101,7 @@ fun StoryReaderScreen(
     val listState = rememberLazyListState()
 
     var showVoicePickerSheet by remember { mutableStateOf(false) }
+    var showChronicle by remember { mutableStateOf(false) }
     var selectedFontSize by remember { mutableStateOf(StoryFontSize.MEDIUM) }
     var showCustomContinuationField by remember { mutableStateOf(false) }
     var customContinuationText by remember { mutableStateOf("") }
@@ -139,6 +145,7 @@ fun StoryReaderScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -168,14 +175,14 @@ fun StoryReaderScreen(
                         )
                     }
 
-                    // Night mode toggle
+                    // Settings: theme, interface language and parent controls.
                     IconButton(
-                        onClick = onToggleNightMode,
-                        modifier = Modifier.testTag("reader_night_mode_toggle")
+                        onClick = onOpenSettings,
+                        modifier = Modifier.testTag("open_settings")
                     ) {
                         Icon(
-                            imageVector = if (isNightMode) Icons.Default.LightMode else Icons.Default.DarkMode,
-                            contentDescription = ui.text("Noćni/Dnevni režim", "Nacht-/Tagmodus"),
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = ui.text("Postavke", "Einstellungen"),
                             tint = if (isNightMode) MagicGold else MagicPurple
                         )
                     }
@@ -203,7 +210,6 @@ fun StoryReaderScreen(
             modifier = modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(if (isNightMode) DreamNightBg else DreamDayBg)
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp)
         ) {
@@ -334,14 +340,14 @@ fun StoryReaderScreen(
                         // Voice Indicator Banner & Selector Chip
                         Surface(
                             shape = RoundedCornerShape(14.dp),
-                            color = if (audioEngine == AudioEngineType.GEMINI_NATURAL) {
+                            color = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) {
                                 MagicPurple.copy(alpha = if (isNightMode) 0.25f else 0.12f)
                             } else {
                                 MagicMint.copy(alpha = if (isNightMode) 0.25f else 0.15f)
                             },
                             border = BorderStroke(
                                 1.dp,
-                                if (audioEngine == AudioEngineType.GEMINI_NATURAL) MagicPurple.copy(alpha = 0.35f) else MagicMint.copy(alpha = 0.45f)
+                                if (audioEngine != AudioEngineType.OFFLINE_DEVICE) MagicPurple.copy(alpha = 0.35f) else MagicMint.copy(alpha = 0.45f)
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -360,20 +366,20 @@ fun StoryReaderScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = if (audioEngine == AudioEngineType.GEMINI_NATURAL) currentVoice.emoji else "📱",
+                                        text = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) currentVoice.emoji else "📱",
                                         fontSize = 18.sp
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Column {
                                         Text(
-                                            text = if (audioEngine == AudioEngineType.GEMINI_NATURAL) {
-                                                ui.text("Gemini prirodni glas: ${currentVoice.displayName}", "Natürliche Gemini-Stimme: ${currentVoice.displayName}")
+                                            text = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) {
+                                                ui.text("${currentVoice.provider.label} AI glas: ${currentVoice.displayName}", "${currentVoice.provider.label}-KI-Stimme: ${currentVoice.displayName}")
                                             } else {
                                                 ui.text("Offline glas uređaja", "Offline-Gerätestimme")
                                             },
                                             style = MaterialTheme.typography.labelMedium.copy(
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (audioEngine == AudioEngineType.GEMINI_NATURAL) {
+                                                color = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) {
                                                     if (isNightMode) MagicGoldLight else MagicPurple
                                                 } else {
                                                     if (isNightMode) MagicMintLight else Color(0xFF065F46)
@@ -381,7 +387,7 @@ fun StoryReaderScreen(
                                             )
                                         )
                                         Text(
-                                            text = if (audioEngine == AudioEngineType.GEMINI_NATURAL) {
+                                            text = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) {
                                                 ui.text(currentVoice.toneCategoryBs, currentVoice.toneCategoryDe)
                                             } else {
                                                 ui.text("Standardni TTS uređaja (bez interneta)", "Gerätestimme (ohne Internet)")
@@ -478,11 +484,7 @@ fun StoryReaderScreen(
                                     TtsState.IDLE -> {
                                         Button(
                                             onClick = {
-                                                if (!hasUserSelectedVoiceEver) {
-                                                    showVoicePickerSheet = true
-                                                } else {
-                                                    onPlayTts(chapterSpeechText, story.config.language.code, chapterMusicMood)
-                                                }
+                                                onPlayTts(chapterSpeechText, story.config.language.code, chapterMusicMood)
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = MagicPurple),
                                             shape = RoundedCornerShape(14.dp),
@@ -764,7 +766,24 @@ fun StoryReaderScreen(
                 val isLatestChapter = currentChapterIndex == story.chapters.size - 1
                 val isStoryConcluded = currentChapter?.isFinalChapter == true
 
-                if (isStoryConcluded) {
+                if (story.isSerial && isLatestChapter) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(ui.text("Sljedeće večernje poglavlje", "Das nächste Abendkapitel"), style = MaterialTheme.typography.titleLarge)
+                        Text(ui.text("AI nastavlja radnju uz sačuvanu kroniku i poznate likove. Oko 7 minuta čitanja; nastavak se automatski sprema.",
+                            "Die KI setzt die Handlung mit Chronik und vertrauten Figuren fort. Etwa 7 Minuten Vorlesezeit; das Kapitel wird automatisch gespeichert."))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AiProvider.entries.forEach { provider -> FilterChip(storyProvider == provider,
+                                onClick = { onStoryProviderChange(provider) }, label = { Text(provider.label) },
+                                modifier = Modifier.testTag("serial_provider_${provider.name}")) }
+                        }
+                        Button(onClick = onContinueSerial, modifier = Modifier.fillMaxWidth().testTag("continue_serial_story")) {
+                            Text(ui.text("Nastavi radnju ✨", "Handlung fortsetzen ✨"))
+                        }
+                        OutlinedButton(onClick = { showChronicle = true }, modifier = Modifier.fillMaxWidth().testTag("open_chronicle")) {
+                            Text(ui.text("Pregledaj i ispravi kroniku", "Chronik prüfen und korrigieren"))
+                        }
+                    }
+                } else if (isStoryConcluded) {
                     // Celebration Completed Card
                     Card(
                         shape = RoundedCornerShape(22.dp),
@@ -1082,6 +1101,19 @@ fun StoryReaderScreen(
         }
     }
 
+    if (showChronicle) {
+        var draft by remember { mutableStateOf(story.chronicle) }
+        AlertDialog(onDismissRequest = { showChronicle = false },
+            title = { Text(ui.text("Kronika priče", "Geschichtenchronik")) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(ui.text("Ovo je memorija serije koju AI koristi za nastavke. Ispravi eventualno pogrešne činjenice.",
+                    "Dies ist das Gedächtnis der Serie. Korrigiere mögliche falsche Fakten."))
+                OutlinedTextField(draft, { draft = it.take(22_000) }, modifier = Modifier.fillMaxWidth().heightIn(max = 350.dp).testTag("chronicle_editor"))
+            } },
+            confirmButton = { TextButton(enabled = draft.isNotBlank(), onClick = { onSaveChronicle(draft); showChronicle = false }) {
+                Text(ui.text("Sačuvaj", "Speichern")) } },
+            dismissButton = { TextButton(onClick = { showChronicle = false }) { Text(ui.text("Odustani", "Abbrechen")) } })
+    }
     if (showVoicePickerSheet) {
         VoiceSelectionBottomSheet(
             voices = GeminiVoices.ALL_VOICES,
@@ -1159,7 +1191,7 @@ fun VoiceSelectionBottomSheet(
                             )
                         )
                         Text(
-                            text = if (ui.isGerman) "Natürliche Gemini AI Stimmen für Kindergeschichten" else "Gemini AI prirodni glasovi za dječje priče",
+                            text = ui.text("Gemini i OpenAI prirodni AI glasovi za dječje priče", "Natürliche Gemini- und OpenAI-KI-Stimmen für Kindergeschichten"),
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = if (isNightMode) DreamNightTextSec else DreamDayTextSec
                             )

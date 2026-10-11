@@ -10,6 +10,9 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import com.example.data.model.*
 import com.example.data.remote.GeminiService
+import com.example.data.remote.OpenAiService
+import com.example.data.security.AiKeyStore
+import com.example.data.security.AiProvider
 import com.example.ui.localization.AppLanguagePreferences
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -21,7 +24,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 enum class TtsState { IDLE, PREPARING, PLAYING, PAUSED, ERROR }
-enum class AudioEngineType { GEMINI_NATURAL, OFFLINE_DEVICE }
+enum class AudioEngineType { GEMINI_NATURAL, OPENAI_NATURAL, OFFLINE_DEVICE }
 
 class StoryAudioPlayer(
     private val context: Context,
@@ -29,7 +32,10 @@ class StoryAudioPlayer(
 ) : TextToSpeech.OnInitListener {
     private val prefs = context.getSharedPreferences("story_voice_prefs", Context.MODE_PRIVATE)
     private val appLanguagePreferences = AppLanguagePreferences(context)
-    private val geminiService = GeminiService()
+    private val keys = AiKeyStore(context)
+    private val geminiService = GeminiService(apiKeyProvider = { keys.read(AiProvider.GEMINI) })
+    private val openAiService = OpenAiService({ keys.read(AiProvider.OPENAI) })
+    private var playingVoice = GeminiVoices.VOICE_AOEDE
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val music = BackgroundMusicPlayer(context, scope)
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -52,7 +58,8 @@ class StoryAudioPlayer(
 
     private val _ttsState = MutableStateFlow(TtsState.IDLE)
     val ttsState = _ttsState.asStateFlow()
-    private val _audioEngine = MutableStateFlow(AudioEngineType.GEMINI_NATURAL)
+    private val _audioEngine = MutableStateFlow(engineFor(
+        GeminiVoices.getById(prefs.getString("selected_voice_id", GeminiVoices.VOICE_AOEDE.id).orEmpty())))
     val audioEngine = _audioEngine.asStateFlow()
     private val _currentVoice = MutableStateFlow(
         GeminiVoices.getById(prefs.getString("selected_voice_id", GeminiVoices.VOICE_AOEDE.id).orEmpty())
@@ -104,6 +111,7 @@ class StoryAudioPlayer(
     fun selectVoice(voice: GeminiVoice) {
         if (_currentVoice.value.id != voice.id) stop()
         _currentVoice.value = voice
+        _audioEngine.value = engineFor(voice)
         prefs.edit().putString("selected_voice_id", voice.id).putBoolean("has_selected_voice_ever", true).apply()
     }
     fun hasUserSelectedVoiceEver() = prefs.getBoolean("has_selected_voice_ever", false)
@@ -130,7 +138,8 @@ class StoryAudioPlayer(
         stop()
         if (segments.isEmpty()) return
         val voice = forceVoice ?: _currentVoice.value
-        _audioEngine.value = if (voice.isOfflineDevice) AudioEngineType.OFFLINE_DEVICE else AudioEngineType.GEMINI_NATURAL
+        playingVoice = voice
+        _audioEngine.value = engineFor(voice)
         _automaticMood.value = mood
         startSession(preview = false) {
             var useOffline = voice.isOfflineDevice
@@ -169,7 +178,8 @@ class StoryAudioPlayer(
         if (withContext(Dispatchers.IO) { validWav(cacheFile) }) return Clip(cacheFile)
         val language = StoryLanguage.fromCode(langCode)
         val result = speechGenerator?.invoke(text, language, voice.id)
-            ?: geminiService.generateSpeech(text, language, voice.id)
+            ?: if (voice.provider == AiProvider.OPENAI) openAiService.speech(text, language, voice.id.removePrefix("openai:"))
+            else geminiService.generateSpeech(text, language, voice.id)
         currentCoroutineContext().ensureActive()
         val bytes = result.getOrNull()
             ?: return Clip(null, result.exceptionOrNull()?.message)
@@ -202,13 +212,13 @@ class StoryAudioPlayer(
             _audioEngine.value = AudioEngineType.OFFLINE_DEVICE
             if (clip.error != null) {
                 _errorMessage.value = uiText(
-                    "Gemini glas nije dostupan (${clip.error}). Nastavljam glasom uređaja.",
-                    "Die Gemini-Stimme ist nicht verfügbar (${clip.error}). Die Gerätestimme wird verwendet."
+                    "AI glas nije dostupan (${clip.error}). Nastavljam glasom uređaja.",
+                    "Die KI-Stimme ist nicht verfügbar (${clip.error}). Die Gerätestimme wird verwendet."
                 )
             }
             playOffline(text, langCode)
         } else {
-            _audioEngine.value = AudioEngineType.GEMINI_NATURAL
+            _audioEngine.value = engineFor(playingVoice)
             try { playWav(clip.file) }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) {
@@ -356,7 +366,8 @@ class StoryAudioPlayer(
 
     fun previewVoice(voice: GeminiVoice, langCode: String) {
         stop()
-        _audioEngine.value = if (voice.isOfflineDevice) AudioEngineType.OFFLINE_DEVICE else AudioEngineType.GEMINI_NATURAL
+        playingVoice = voice
+        _audioEngine.value = engineFor(voice)
         val sample = if (langCode.equals("de", true)) "Willkommen in der Traumwelt! Ich bin dein Geschichtenerzähler."
             else "Dobrodošli u Svijet snova! Ja sam tvoj pripovjedač."
         startSession(preview = true) {
@@ -367,6 +378,12 @@ class StoryAudioPlayer(
         }
     }
     fun stopPreview() = stop()
+
+    private fun engineFor(voice: GeminiVoice) = when {
+        voice.isOfflineDevice -> AudioEngineType.OFFLINE_DEVICE
+        voice.provider == AiProvider.OPENAI -> AudioEngineType.OPENAI_NATURAL
+        else -> AudioEngineType.GEMINI_NATURAL
+    }
 
     @Suppress("DEPRECATION")
     private fun requestFocus(): Boolean {

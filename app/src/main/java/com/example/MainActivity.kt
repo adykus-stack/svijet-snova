@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -12,21 +13,33 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.*
 import com.example.ui.components.DreamTopBar
+import com.example.ui.components.DreamBackdrop
+import com.example.ui.settings.SettingsScreen
+import com.example.ui.settings.StoryImportScreen
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.example.ui.generating.GeneratingScreen
 import com.example.ui.home.HomeScreen
 import com.example.ui.intro.IntroScreen
 import com.example.ui.library.LibraryScreen
 import com.example.ui.reader.StoryReaderScreen
 import com.example.ui.setup.StorySetupScreen
-import com.example.ui.theme.DreamDayBg
-import com.example.ui.theme.DreamNightBg
 import com.example.ui.theme.SvijetSnovaTheme
 import com.example.ui.localization.LocalAppLanguage
-import com.example.ui.localization.AppLanguageSelector
+import com.example.ui.parents.ParentGate
+import com.example.ui.parents.ParentSettingsScreen
+import android.view.WindowManager
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.platform.testTag
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +51,13 @@ class MainActivity : ComponentActivity() {
             val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
             val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
             val isNightMode by viewModel.isNightMode.collectAsStateWithLifecycle()
+            val appTheme by viewModel.appTheme.collectAsStateWithLifecycle()
+            DisposableEffect(appTheme) {
+                val barStyle = if (appTheme.isDark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
+                onDispose { }
+            }
             val creationConfig by viewModel.creationConfig.collectAsStateWithLifecycle()
             val activeStory by viewModel.activeStory.collectAsStateWithLifecycle()
             val savedStories by viewModel.savedStories.collectAsStateWithLifecycle()
@@ -49,6 +69,36 @@ class MainActivity : ComponentActivity() {
             val musicSettings by viewModel.musicSettings.collectAsStateWithLifecycle()
             val narrationProgress by viewModel.narrationProgress.collectAsStateWithLifecycle()
             val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+            val parentKeys by viewModel.parentKeys.collectAsStateWithLifecycle()
+            val storyProvider by viewModel.storyProvider.collectAsStateWithLifecycle()
+            val storyImport by viewModel.storyImport.collectAsStateWithLifecycle()
+            val generationDetail by viewModel.generationDetail.collectAsStateWithLifecycle()
+            val backupBusy by viewModel.backupBusy.collectAsStateWithLifecycle()
+            val backupMessage by viewModel.backupMessage.collectAsStateWithLifecycle()
+            val restorePreview by viewModel.restorePreview.collectAsStateWithLifecycle()
+            val libraryCategory by viewModel.libraryCategory.collectAsStateWithLifecycle()
+            val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(viewModel::loadImport) }
+            val backupPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let(viewModel::writeBackup) }
+            val restorePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(viewModel::previewBackup) }
+            var showParentGate by remember { mutableStateOf(false) }
+            var showChangePin by remember { mutableStateOf(false) }
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner, currentScreen) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_STOP) {
+                        showParentGate = false
+                        showChangePin = false
+                        if (viewModel.currentScreen.value == AppScreen.Parents) viewModel.navigateBack()
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
+            DisposableEffect(currentScreen, showParentGate, showChangePin) {
+                val protectsKeys = currentScreen == AppScreen.Parents || showParentGate || showChangePin
+                if (protectsKeys) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                onDispose { if (protectsKeys) window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+            }
 
             val snackbarHostState = remember { SnackbarHostState() }
 
@@ -65,14 +115,44 @@ class MainActivity : ComponentActivity() {
             }
 
             CompositionLocalProvider(LocalAppLanguage provides appLanguage) {
-                SvijetSnovaTheme(darkTheme = isNightMode) {
+                SvijetSnovaTheme(appTheme = appTheme) {
+                    if (showParentGate) ParentGate(onDismiss = { showParentGate = false },
+                        onUnlock = { showParentGate = false; viewModel.openParentSettings() })
+                    if (showChangePin) ParentGate(onDismiss = { showChangePin = false },
+                        onUnlock = { showChangePin = false }, changePin = true)
+                    restorePreview?.let { items ->
+                        AlertDialog(onDismissRequest = viewModel::cancelRestore,
+                            title = { Text(appLanguage.text("Vrati sigurnosnu kopiju?", "Sicherung wiederherstellen?")) },
+                            text = { Text(appLanguage.text("Kopija sadrži ${items.size} priča. Dodaj ih u biblioteku; postojeće priče ostaju.",
+                                "Die Sicherung enthält ${items.size} Geschichten. Zur Bibliothek hinzufügen; bestehende Geschichten bleiben erhalten.")) },
+                            confirmButton = { TextButton(enabled = !backupBusy, onClick = viewModel::confirmRestore) { Text(appLanguage.text("Vrati", "Wiederherstellen")) } },
+                            dismissButton = { TextButton(enabled = !backupBusy, onClick = viewModel::cancelRestore) { Text(appLanguage.text("Odustani", "Abbrechen")) } })
+                    }
                     Scaffold(
-                        topBar = { AppLanguageSelector(appLanguage, viewModel::setAppLanguage) },
+                        topBar = {
+                            when (currentScreen) {
+                                AppScreen.Home -> DreamTopBar(
+                                    isNightMode = isNightMode, savedCount = savedStories.size,
+                                    onOpenSettings = { viewModel.navigateTo(AppScreen.Settings) },
+                                    onOpenLibrary = { viewModel.openLibrary() },
+                                    onReplayIntro = { viewModel.navigateTo(AppScreen.Intro) })
+                                AppScreen.Intro -> Row(Modifier.fillMaxWidth().statusBarsPadding(), horizontalArrangement = Arrangement.End) {
+                                    TextButton(onClick = { viewModel.navigateTo(AppScreen.Settings) }, modifier = Modifier.testTag("open_settings")) {
+                                        Icon(Icons.Default.Settings, null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(appLanguage.text("Postavke", "Einstellungen"))
+                                    }
+                                }
+                                else -> Unit
+                            }
+                        },
+                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        contentColor = MaterialTheme.colorScheme.onBackground,
                         snackbarHost = { SnackbarHost(snackbarHostState) },
                         contentWindowInsets = WindowInsets.safeDrawing,
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(if (isNightMode) DreamNightBg else DreamDayBg)
+                            .background(MaterialTheme.colorScheme.background)
                     ) { innerPadding ->
                         Box(
                             modifier = Modifier
@@ -80,15 +160,42 @@ class MainActivity : ComponentActivity() {
                                 .padding(innerPadding)
                                 .consumeWindowInsets(innerPadding)
                         ) {
+                            DreamBackdrop(appTheme)
                             AnimatedContent(
                                 targetState = currentScreen,
                                 transitionSpec = {
-                                    fadeIn(animationSpec = tween(350)) togetherWith
-                                            fadeOut(animationSpec = tween(300))
+                                    // Do not keep a key-entry screen visible during a fading transition.
+                                    if (initialState == AppScreen.Parents || targetState == AppScreen.Parents) {
+                                        EnterTransition.None togetherWith ExitTransition.None
+                                    } else {
+                                        fadeIn(animationSpec = tween(350)) togetherWith
+                                                fadeOut(animationSpec = tween(300))
+                                    }
                                 },
                                 label = "screen_transition"
                             ) { screen ->
                                 when (screen) {
+                                    AppScreen.Settings -> SettingsScreen(
+                                        language = appLanguage, theme = appTheme,
+                                        onLanguageChange = viewModel::setAppLanguage,
+                                        onThemeChange = viewModel::setAppTheme,
+                                        onOpenParents = { showParentGate = true },
+                                        onBack = { viewModel.navigateBack() },
+                                        voice = currentVoice, onVoiceChange = viewModel::selectVoice,
+                                        onImport = { viewModel.navigateTo(AppScreen.Import) },
+                                        onBackup = { backupPicker.launch("Svijet-snova-${java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(java.util.Date())}.json") },
+                                        onRestore = { restorePicker.launch(arrayOf("application/json", "application/octet-stream")) },
+                                        backupBusy = backupBusy, backupMessage = backupMessage)
+                                    AppScreen.Import -> StoryImportScreen(state = storyImport, provider = storyProvider,
+                                        onPick = { importPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/json", "application/octet-stream")) },
+                                        onSelect = viewModel::selectImportConversation, onTitle = viewModel::setImportTitle,
+                                        onConfig = viewModel::setImportConfig, onProvider = viewModel::setStoryProvider,
+                                        onStart = viewModel::startImport, onBack = { viewModel.navigateBack() })
+                                    AppScreen.Parents -> ParentSettingsScreen(
+                                        keyState = parentKeys,
+                                        onCheckAndSave = viewModel::checkAndSaveKey, onRemove = viewModel::removeKey,
+                                        onCancelCheck = viewModel::cancelKeyCheck,
+                                        onChangePin = { showChangePin = true }, onBack = { viewModel.navigateBack() })
                                     AppScreen.Intro -> {
                                         IntroScreen(
                                             onStartAdventure = { viewModel.navigateTo(AppScreen.Home) },
@@ -97,24 +204,16 @@ class MainActivity : ComponentActivity() {
                                     }
 
                                     AppScreen.Home -> {
-                                        Column(modifier = Modifier.fillMaxSize()) {
-                                            DreamTopBar(
-                                                isNightMode = isNightMode,
-                                                savedCount = savedStories.size,
-                                                onToggleNightMode = { viewModel.toggleNightMode() },
-                                                onOpenLibrary = { viewModel.navigateTo(AppScreen.Library) },
-                                                onReplayIntro = { viewModel.navigateTo(AppScreen.Intro) }
-                                            )
-
                                             HomeScreen(
                                                 selectedCategory = creationConfig.category,
                                                 onSelectCategory = { viewModel.selectCategory(it) },
                                                 onProceedToSetup = { viewModel.navigateTo(AppScreen.Setup) },
                                                 activeStory = activeStory,
                                                 onResumeActiveStory = { viewModel.navigateTo(AppScreen.Reader) },
-                                                isNightMode = isNightMode
+                                                isNightMode = isNightMode,
+                                                categoryHasStories = savedStories.any { it.categoryId == creationConfig.category.id },
+                                                onOpenCategoryStories = { viewModel.openLibrary(creationConfig.category.id) }
                                             )
-                                        }
                                     }
 
                                     AppScreen.Setup -> {
@@ -123,7 +222,9 @@ class MainActivity : ComponentActivity() {
                                             onConfigChange = { viewModel.updateConfig(it) },
                                             onGenerateClick = { viewModel.startGeneratingStory() },
                                             onBackClick = { viewModel.navigateBack() },
-                                            isNightMode = isNightMode
+                                            onOpenSettings = { viewModel.navigateTo(AppScreen.Settings) },
+                                            isNightMode = isNightMode,
+                                            storyProvider = storyProvider, onStoryProviderChange = viewModel::setStoryProvider
                                         )
                                     }
 
@@ -132,7 +233,8 @@ class MainActivity : ComponentActivity() {
                                             categoryEmoji = creationConfig.category.emoji,
                                             categoryTitle = appLanguage.text(creationConfig.category.titleBs, creationConfig.category.titleDe),
                                             isNightMode = isNightMode,
-                                            onCancel = viewModel::cancelGeneration
+                                            onCancel = viewModel::cancelGeneration,
+                                            detail = generationDetail
                                         )
                                     }
 
@@ -166,8 +268,11 @@ class MainActivity : ComponentActivity() {
                                                 onFinishStoryClick = { viewModel.finishStory() },
                                                 onTranslateStoryClick = { viewModel.translateStory() },
                                                 isNightMode = isNightMode,
-                                                onToggleNightMode = { viewModel.toggleNightMode() },
-                                                onBackClick = { viewModel.navigateBack() }
+                                                onOpenSettings = { viewModel.navigateTo(AppScreen.Settings) },
+                                                onBackClick = { viewModel.navigateBack() },
+                                                onContinueSerial = viewModel::continueSerial,
+                                                onSaveChronicle = viewModel::saveChronicle,
+                                                storyProvider = storyProvider, onStoryProviderChange = viewModel::setStoryProvider
                                             )
                                         } ?: run {
                                             // If no active story, return to home
@@ -184,7 +289,9 @@ class MainActivity : ComponentActivity() {
                                             onDeleteStory = { id -> viewModel.deleteStory(id) },
                                             onBackClick = { viewModel.navigateBack() },
                                             onCreateNewStory = { viewModel.navigateTo(AppScreen.Home) },
-                                            isNightMode = isNightMode
+                                            onOpenSettings = { viewModel.navigateTo(AppScreen.Settings) },
+                                            isNightMode = isNightMode,
+                                            initialCategory = libraryCategory
                                         )
                                     }
                                 }

@@ -28,7 +28,7 @@ class ExampleRobolectricTest {
   @Test
   fun `verify story categories exist`() {
     val categories = StoryCategories.allCategories
-    assertEquals(10, categories.size)
+    assertEquals(11, categories.size)
     assertNotNull(StoryCategories.getById("magic"))
     assertNotNull(StoryCategories.getById("bedtime"))
   }

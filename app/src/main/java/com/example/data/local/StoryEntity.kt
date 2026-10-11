@@ -2,6 +2,7 @@ package com.example.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import androidx.room.ColumnInfo
 import com.example.data.model.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,7 +21,10 @@ data class StoryEntity(
     val themeOrItem: String,
     val targetMoral: String,
     val chaptersJson: String,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "''") val chronicle: String = "",
+    @ColumnInfo(defaultValue = "''") val sourceArchive: String = "",
+    @ColumnInfo(defaultValue = "0") val isSerial: Boolean = false
 ) {
     fun toActiveStory(): ActiveStory {
         val parsedChapters = mutableListOf<Chapter>()
@@ -94,7 +98,8 @@ data class StoryEntity(
             chapters = parsedChapters,
             currentChapterIndex = if (parsedChapters.isNotEmpty()) parsedChapters.size - 1 else 0,
             isSaved = true,
-            createdAt = createdAt
+            createdAt = createdAt,
+            chronicle = chronicle, sourceArchive = sourceArchive, isSerial = isSerial
         )
     }
 
@@ -139,7 +144,8 @@ data class StoryEntity(
                 themeOrItem = story.config.themeOrItem,
                 targetMoral = story.config.targetMoral,
                 chaptersJson = jsonArray.toString(),
-                createdAt = story.createdAt
+                createdAt = story.createdAt,
+                chronicle = story.chronicle, sourceArchive = story.sourceArchive, isSerial = story.isSerial
             )
         }
     }

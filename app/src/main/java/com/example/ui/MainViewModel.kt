@@ -21,6 +21,13 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import com.example.ui.localization.AppLanguage
 import com.example.ui.localization.AppLanguagePreferences
+import com.example.data.security.*
+import com.example.data.remote.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.example.ui.theme.AppTheme
+import android.net.Uri
+import com.example.data.importing.*
 
 sealed interface AppScreen {
     data object Intro : AppScreen
@@ -29,9 +36,243 @@ sealed interface AppScreen {
     data object Generating : AppScreen
     data object Reader : AppScreen
     data object Library : AppScreen
+    data object Parents : AppScreen
+    data object Settings : AppScreen
+    data object Import : AppScreen
 }
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+data class ParentKeyState(
+    val saved: Set<AiProvider> = emptySet(),
+    val busy: Boolean = false,
+    val messageBs: String = "",
+    val messageDe: String = "",
+    val savedRevision: Int = 0
+)
+
+data class StoryImportState(val conversations: List<ChatConversation> = emptyList(), val selectedIndex: Int = 0,
+    val title: String = "", val config: StoryCreationConfig = StoryCreationConfig(category = StoryCategories.family),
+    val loading: Boolean = false) {
+    val selected: ChatConversation? get() = conversations.getOrNull(selectedIndex)
+}
+
+class MainViewModel @JvmOverloads constructor(application: Application,
+    private val keys: AiKeyStore = AiKeyStore(application),
+    private val validator: ApiKeyValidator = ApiKeyValidator()
+) : AndroidViewModel(application) {
+    private val aiPreferences = AiPreferences(application)
+    private var keyJob: Job? = null
+    private val _parentKeys = MutableStateFlow(ParentKeyState())
+    val parentKeys = _parentKeys.asStateFlow()
+    private val _storyProvider = MutableStateFlow(aiPreferences.storyProvider())
+    val storyProvider = _storyProvider.asStateFlow()
+    private val checkpoint = ImportCheckpoint(application)
+    private var documentJob: Job? = null
+    private val _storyImport = MutableStateFlow(StoryImportState())
+    val storyImport = _storyImport.asStateFlow()
+    private val _generationDetail = MutableStateFlow("")
+    val generationDetail = _generationDetail.asStateFlow()
+    private val _backupBusy = MutableStateFlow(false)
+    val backupBusy = _backupBusy.asStateFlow()
+    private val _backupMessage = MutableStateFlow("")
+    val backupMessage = _backupMessage.asStateFlow()
+    private val _restorePreview = MutableStateFlow<List<StoryEntity>?>(null)
+    val restorePreview = _restorePreview.asStateFlow()
+    private val _libraryCategory = MutableStateFlow<String?>(null)
+    val libraryCategory = _libraryCategory.asStateFlow()
+    fun openLibrary(category: String? = null) {
+        _libraryCategory.value = category
+        navigateTo(AppScreen.Library)
+    }
+
+    fun loadImport(uri: Uri) {
+        if (_storyImport.value.loading || _backupBusy.value) return
+        _storyImport.value = _storyImport.value.copy(loading = true)
+        documentJob = viewModelScope.launch {
+            try {
+                val conversations = withContext(Dispatchers.IO) {
+                    checkNotNull(getApplication<Application>().contentResolver.openInputStream(uri)).use { ChatGptImport.read(it) }
+                }
+                _storyImport.value = _storyImport.value.copy(conversations = conversations, selectedIndex = 0,
+                    title = conversations.first().title.take(200), loading = false)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                _storyImport.value = _storyImport.value.copy(loading = false)
+                _errorMessage.value = e.message ?: _appLanguage.value.text("Izvoz nije otvoren. Izaberi ChatGPT ZIP ili conversations.json.",
+                    "Export konnte nicht geöffnet werden. Wähle ChatGPT-ZIP oder conversations.json.")
+            }
+        }
+    }
+
+    fun selectImportConversation(index: Int) {
+        val selected = _storyImport.value.conversations.getOrNull(index) ?: return
+        _storyImport.value = _storyImport.value.copy(selectedIndex = index, title = selected.title.take(200))
+    }
+    fun setImportTitle(title: String) { _storyImport.value = _storyImport.value.copy(title = title.take(200)) }
+    fun setImportConfig(config: StoryCreationConfig) { _storyImport.value = _storyImport.value.copy(config = config) }
+
+    fun startImport() {
+        if (_isGenerating.value || _storyImport.value.loading) return
+        val state = _storyImport.value
+        val conversation = state.selected ?: return
+        if (state.title.isBlank()) return
+        val provider = _storyProvider.value
+        _creationConfig.value = state.config
+        runGeneration(AppScreen.Import) {
+            try {
+                val story = withContext(Dispatchers.IO) {
+                    repository.importConversation(conversation, state.title.trim(), state.config, provider, checkpoint) { done, total, stage ->
+                        _generationDetail.value = _appLanguage.value.text("Uvoz: $done / $total — $stage", "Import: $done / $total — $stage")
+                    }
+                }
+                coroutineContext.ensureActive()
+                _activeStory.value = story
+                _creationConfig.value = story.config
+                _storyImport.value = StoryImportState()
+                _currentScreen.value = AppScreen.Reader
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                _errorMessage.value = (e.message ?: "Uvoz nije uspio / Import fehlgeschlagen") + _appLanguage.value.text(
+                    "\nObrađeni dijelovi kronike su sačuvani. Ponovo pokreni uvoz istog razgovora da nastaviš.",
+                    "\nVerarbeitete Teile sind gespeichert. Starte denselben Import erneut, um fortzufahren.")
+                _currentScreen.value = AppScreen.Import
+            }
+        }
+    }
+
+    fun continueSerial() {
+        val current = _activeStory.value ?: return
+        if (_isGenerating.value || !current.isSerial) return
+        runGeneration(AppScreen.Reader) {
+            val updated = repository.continueSerial(current)
+            coroutineContext.ensureActive()
+            _activeStory.value = updated
+            _currentScreen.value = AppScreen.Reader
+        }
+    }
+
+    fun saveChronicle(text: String) {
+        val current = _activeStory.value ?: return
+        if (!current.isSerial || _isGenerating.value || text.isBlank() || text.length > 22_000) return
+        viewModelScope.launch {
+            try {
+                val updated = current.copy(chronicle = text)
+                val id = repository.saveStory(updated)
+                _activeStory.value = updated.copy(id = id, isSaved = true)
+            } catch (_: Exception) { _errorMessage.value = _appLanguage.value.text("Kronika nije spremljena.", "Chronik konnte nicht gespeichert werden.") }
+        }
+    }
+
+    fun writeBackup(uri: Uri) = documentOperation {
+        val backup = repository.backup()
+        withContext(Dispatchers.IO) {
+            checkNotNull(getApplication<Application>().contentResolver.openOutputStream(uri, "wt")).use { it.write(backup.toByteArray()) }
+        }
+        _backupMessage.value = _appLanguage.value.text("Sigurnosna kopija je spremljena na izabranu lokaciju.", "Sicherung am gewählten Ort gespeichert.")
+    }
+    fun previewBackup(uri: Uri) = documentOperation {
+        _restorePreview.value = withContext(Dispatchers.IO) {
+            checkNotNull(getApplication<Application>().contentResolver.openInputStream(uri)).use {
+                StoryBackup.decode(ChatGptImport.readLimited(it).toString(Charsets.UTF_8))
+            }
+        }
+    }
+    fun cancelRestore() { _restorePreview.value = null }
+    fun confirmRestore() {
+        val items = _restorePreview.value ?: return
+        documentOperation {
+            val added = AppDatabase.getDatabase(getApplication()).storyDao().restoreStories(items)
+            _restorePreview.value = null
+            _backupMessage.value = _appLanguage.value.text("Dodano priča: $added. Postojeće priče su sačuvane.",
+                "$added Geschichten hinzugefügt. Bestehende Geschichten bleiben erhalten.")
+        }
+    }
+    private fun documentOperation(operation: suspend () -> Unit) {
+        if (_backupBusy.value || _storyImport.value.loading) return
+        _backupBusy.value = true
+        _backupMessage.value = ""
+        documentJob = viewModelScope.launch {
+            try { operation() }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { _backupMessage.value = _appLanguage.value.text(
+                "Kopiranje nije uspjelo. Provjeri Drive, internet i izabranu datoteku pa pokušaj ponovo.",
+                "Sicherung fehlgeschlagen. Prüfe Drive, Internet und Datei und versuche es erneut.") }
+            finally { _backupBusy.value = false }
+        }
+    }
+
+    fun setStoryProvider(provider: AiProvider) {
+        aiPreferences.setStoryProvider(provider)
+        _storyProvider.value = provider
+    }
+
+    fun openParentSettings() {
+        navigateTo(AppScreen.Parents)
+        keyJob?.cancel()
+        _parentKeys.value = _parentKeys.value.copy(busy = true, messageBs = "", messageDe = "")
+        keyJob = viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                AiProvider.entries.filter { runCatching { keys.read(it).isNotBlank() }.getOrDefault(false) }.toSet()
+            }
+            _parentKeys.value = _parentKeys.value.copy(saved = saved, busy = false)
+        }
+    }
+
+    fun cancelKeyCheck() {
+        keyJob?.cancel()
+        keyJob = null
+        _parentKeys.value = _parentKeys.value.copy(busy = false, messageBs = "", messageDe = "")
+    }
+
+    fun checkAndSaveKey(provider: AiProvider, candidate: String) {
+        if (_parentKeys.value.busy) return
+        _parentKeys.value = _parentKeys.value.copy(busy = true, messageBs = "", messageDe = "")
+        keyJob = viewModelScope.launch {
+            try {
+                val key = withContext(Dispatchers.IO) { candidate.trim().ifEmpty { keys.read(provider) } }
+                validator.validate(provider, key)
+                withContext(Dispatchers.IO) {
+                    coroutineContext.ensureActive()
+                    keys.save(provider, key)
+                }
+                _parentKeys.value = _parentKeys.value.copy(
+                    saved = _parentKeys.value.saved + provider, busy = false,
+                    savedRevision = _parentKeys.value.savedRevision + 1,
+                    messageBs = "${provider.label} ključ je provjeren i spremljen na ovaj telefon. Provjera ne potvrđuje saldo niti limit za priče i glasove.",
+                    messageDe = "${provider.label}-Schlüssel geprüft und auf diesem Telefon gespeichert. Die Prüfung bestätigt weder Guthaben noch Limits für Geschichten und Stimmen."
+                )
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                val status = (e as? AiRequestException)?.status
+                val messages = when {
+                    e is IllegalArgumentException -> "Zalijepi cijeli API ključ bez razmaka." to "Füge den vollständigen API-Schlüssel ohne Leerzeichen ein."
+                    status == 400 || status == 401 || status == 403 -> "Ključ nije prihvaćen. Provjeri ključ i izabranog pružaoca." to "Schlüssel nicht akzeptiert. Prüfe Schlüssel und Anbieter."
+                    status == 429 -> "Previše zahtjeva ili dostignut API limit. Pokušaj kasnije i provjeri svoj račun." to "Zu viele Anfragen oder API-Limit erreicht. Versuche es später und prüfe dein Konto."
+                    status != null -> "Servis nije dostupan za ovaj ključ (HTTP $status). Postojeći ključ nije promijenjen." to "Dienst für diesen Schlüssel nicht verfügbar (HTTP $status). Der bisherige Schlüssel wurde nicht geändert."
+                    else -> "Provjera ili spremanje nije uspjelo. Provjeri internet i pokušaj ponovo. Postojeći ključ nije promijenjen." to "Prüfung oder Speicherung fehlgeschlagen. Prüfe die Internetverbindung und versuche es erneut. Der bisherige Schlüssel wurde nicht geändert."
+                }
+                _parentKeys.value = _parentKeys.value.copy(busy = false, messageBs = messages.first, messageDe = messages.second)
+            }
+        }
+    }
+
+    fun removeKey(provider: AiProvider) {
+        if (_parentKeys.value.busy) return
+        audioPlayer.stop()
+        _parentKeys.value = _parentKeys.value.copy(busy = true)
+        keyJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { keys.remove(provider) }
+                _parentKeys.value = _parentKeys.value.copy(saved = _parentKeys.value.saved - provider, busy = false,
+                    savedRevision = _parentKeys.value.savedRevision + 1,
+                    messageBs = "${provider.label} ključ je uklonjen s ovog telefona. Nije poništen kod pružaoca.",
+                    messageDe = "${provider.label}-Schlüssel von diesem Telefon entfernt. Beim Anbieter wurde er nicht widerrufen.")
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                _parentKeys.value = _parentKeys.value.copy(busy = false,
+                    messageBs = "Ključ nije uklonjen. Pokušaj ponovo.", messageDe = "Schlüssel nicht entfernt. Versuche es erneut.")
+            }
+        }
+    }
     private val languagePreferences = AppLanguagePreferences(application)
     private val _appLanguage = MutableStateFlow(languagePreferences.get())
     val appLanguage = _appLanguage.asStateFlow()
@@ -44,7 +285,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val repository = StoryRepository(
-        storyDao = AppDatabase.getDatabase(application).storyDao()
+        storyDao = AppDatabase.getDatabase(application).storyDao(),
+        geminiService = GeminiService(textProvider = aiPreferences::storyProvider,
+            openAiService = OpenAiService({ keys.read(AiProvider.OPENAI) }),
+            apiKeyProvider = { keys.read(AiProvider.GEMINI) })
     )
 
     val audioPlayer = StoryAudioPlayer(application)
@@ -72,7 +316,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val backStack = mutableListOf<AppScreen>()
 
-    private val _isNightMode = MutableStateFlow(false)
+    // Intentionally session-only: every cold start begins with the dark theme.
+    private val _appTheme = MutableStateFlow(AppTheme.DARK)
+    val appTheme = _appTheme.asStateFlow()
+    private val _isNightMode = MutableStateFlow(true)
     val isNightMode: StateFlow<Boolean> = _isNightMode.asStateFlow()
 
     private val _creationConfig = MutableStateFlow(StoryCreationConfig())
@@ -96,6 +343,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun navigateBack(): Boolean {
+        if (_currentScreen.value == AppScreen.Parents) cancelKeyCheck()
         if (_isGenerating.value) {
             cancelGeneration()
             return true
@@ -112,8 +360,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return false
     }
 
-    fun toggleNightMode() {
-        _isNightMode.value = !_isNightMode.value
+    fun setAppTheme(theme: AppTheme) {
+        _appTheme.value = theme
+        _isNightMode.value = theme.isDark
     }
 
     fun selectCategory(category: StoryCategory) {
@@ -187,7 +436,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _activeStory.value = translated
                 _creationConfig.value = translated.config
                 _currentScreen.value = AppScreen.Reader
-            }.onFailure {
+            }.onFailure { err ->
+                _errorMessage.value = err.message ?: _appLanguage.value.text("Prevod nije uspio.", "Übersetzung fehlgeschlagen.")
                 _currentScreen.value = AppScreen.Reader
             }
         }
@@ -197,6 +447,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         generationReturnScreen = returnScreen
         _isGenerating.value = true
         _errorMessage.value = null
+        _generationDetail.value = ""
         audioPlayer.stop()
         // Generating is a temporary state, not a screen to revisit using Back.
         _currentScreen.value = AppScreen.Generating
@@ -206,7 +457,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _errorMessage.value = _appLanguage.value.text(
+                _errorMessage.value = e.message ?: _appLanguage.value.text(
                     "Stvaranje priče nije uspjelo. Pokušaj ponovo.",
                     "Die Geschichte konnte nicht erstellt werden. Bitte versuche es erneut."
                 )
@@ -229,6 +480,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isGenerating.value = false
         _errorMessage.value = null
         _currentScreen.value = generationReturnScreen
+        _generationDetail.value = ""
     }
 
     fun saveCurrentStory() {
@@ -256,6 +508,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playTts(text: String, langCode: String, mood: MusicMood, forceVoice: GeminiVoice? = null) {
+        if (!voiceKeyAvailable(forceVoice ?: currentVoice.value)) return
         audioPlayer.playStory(text, langCode, forceVoice, mood)
     }
 
@@ -276,7 +529,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun previewVoice(voice: GeminiVoice, langCode: String) {
+        if (!voiceKeyAvailable(voice)) return
         audioPlayer.previewVoice(voice, langCode)
+    }
+
+    private fun voiceKeyAvailable(voice: GeminiVoice): Boolean {
+        if (voice.isOfflineDevice) return true
+        if (runCatching { keys.read(voice.provider).isNotBlank() }.getOrDefault(false)) return true
+        _errorMessage.value = _appLanguage.value.text(
+            "Dodaj ${voice.provider.label} API ključ u roditeljskom nadzoru za ovaj glas.",
+            "Füge unter Elternkontrolle einen ${voice.provider.label}-API-Schlüssel für diese Stimme hinzu.")
+        return false
     }
 
     fun stopPreviewVoice() {

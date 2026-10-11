@@ -23,7 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.components.MagicBackground
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 
@@ -33,7 +32,8 @@ fun GeneratingScreen(
     categoryTitle: String,
     isNightMode: Boolean,
     onCancel: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    detail: String = ""
 ) {
     val ui = LocalAppLanguage.current
     var messageIndex by remember { mutableIntStateOf(0) }
@@ -76,16 +76,9 @@ fun GeneratingScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    if (isNightMode) listOf(DreamNightBg, Color(0xFF1E1B4B), DreamNightCard)
-                    else listOf(DreamDayBg, Color(0xFFFEF3C7), Color(0xFFEDE9FE))
-                )
-            )
             .testTag("generating_screen"),
         contentAlignment = Alignment.Center
     ) {
-        MagicBackground(isNightMode = isNightMode)
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -146,7 +139,7 @@ fun GeneratingScreen(
 
             // Main magical message
             Text(
-                text = messages[messageIndex],
+                text = detail.ifBlank { messages[messageIndex] },
                 style = MaterialTheme.typography.headlineSmall.copy(
                     fontWeight = FontWeight.Bold,
                     color = if (isNightMode) Color.White else MagicPurple
@@ -187,8 +180,8 @@ fun GeneratingScreen(
             }
             Text(
                 text = ui.text(
-                    "Tvoji izbori ostaju sačuvani.",
-                    "Deine Einstellungen bleiben erhalten."
+                    "Tvoji izbori i već obrađeni dijelovi kronike ostaju sačuvani.",
+                    "Deine Einstellungen und bereits verarbeitete Chronikteile bleiben erhalten."
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,

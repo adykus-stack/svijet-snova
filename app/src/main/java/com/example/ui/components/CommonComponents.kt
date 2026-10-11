@@ -11,8 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -36,7 +35,7 @@ fun DreamTopBar(
     title: String = "",
     isNightMode: Boolean,
     savedCount: Int = 0,
-    onToggleNightMode: () -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenLibrary: () -> Unit,
     onReplayIntro: () -> Unit,
     modifier: Modifier = Modifier
@@ -50,6 +49,7 @@ fun DreamTopBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -101,11 +101,11 @@ fun DreamTopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Night / Day toggle
+                // All appearance and parent controls live in Settings.
                 IconButton(
-                    onClick = onToggleNightMode,
+                    onClick = onOpenSettings,
                     modifier = Modifier
-                        .testTag("night_mode_toggle")
+                        .testTag("open_settings")
                         .size(44.dp)
                         .clip(CircleShape)
                         .background(
@@ -114,8 +114,8 @@ fun DreamTopBar(
                         )
                 ) {
                     Icon(
-                        imageVector = if (isNightMode) Icons.Default.LightMode else Icons.Default.DarkMode,
-                        contentDescription = ui.text("Prebaci noćni/dnevni režim", "Zwischen Tag- und Nachtmodus wechseln"),
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = ui.text("Postavke", "Einstellungen"),
                         tint = if (isNightMode) MagicGold else MagicPurple
                     )
                 }

@@ -33,15 +33,17 @@ class AppLanguageUiTest {
         AppLanguagePreferences(compose.activity).set(originalLanguage)
     }
 
-    private fun chooseLanguage(code: String) {
+    private fun chooseLanguage(code: String, closeSettings: Boolean = true) {
+        compose.onNodeWithTag("open_settings").performClick()
         compose.onNodeWithTag("app_language_selector").performClick()
         compose.onNodeWithTag("app_language_$code").performClick()
+        compose.onNodeWithText(if (code == "de") "App-Sprache" else "Jezik aplikacije").assertIsDisplayed()
+        if (closeSettings) compose.onNodeWithTag("settings_back_button").performClick()
     }
 
     @Test
     fun menusSwitchImmediatelyAndLanguageSurvivesReopening() {
         chooseLanguage("de")
-        compose.onNodeWithText("App-Sprache").assertIsDisplayed()
         compose.onNodeWithText("Überspringen").assertIsDisplayed()
         compose.onNodeWithTag("skip_intro_button").performClick()
         compose.onNodeWithTag("proceed_to_setup_button").performClick()
@@ -53,13 +55,13 @@ class AppLanguageUiTest {
         compose.onNodeWithTag("lang_card_bs").performScrollTo().assertIsDisplayed()
 
         chooseLanguage("bs")
-        compose.onNodeWithText("Jezik aplikacije").assertIsDisplayed()
         compose.onNodeWithText("Stvori moju priču ✨").assertIsDisplayed()
-        compose.onNodeWithTag("lang_card_bs").assertIsDisplayed()
-        chooseLanguage("de")
+        compose.onNodeWithTag("lang_card_bs").performScrollTo().assertIsDisplayed()
+        chooseLanguage("de", closeSettings = false)
         compose.activityRule.scenario.recreate()
         compose.onNodeWithText("App-Sprache").assertIsDisplayed()
-        // ViewModels survive recreation, so the setup screen also stays open.
+        compose.onNodeWithTag("settings_back_button").performClick()
+        // Returning from settings retains the story configuration.
         compose.onNodeWithText("Meine Geschichte erstellen ✨").assertIsDisplayed()
     }
 }
