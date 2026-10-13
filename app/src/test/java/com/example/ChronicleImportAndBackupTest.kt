@@ -81,7 +81,7 @@ class ChronicleImportAndBackupTest {
         sourceArchive = "Privatni originalni razgovor koji se ne šalje pri svakom nastavku.", isSerial = true)
 
     @Test fun backupsPreserveChronicleAndOriginalArchiveWithoutCredentialsAndPin() {
-        val entity = StoryEntity.fromActiveStory(serial())
+        val entity = StoryEntity.fromActiveStory(serial().copy(nextChapterGuidance = "Leon treba pronaći mjesečevu pećinu."))
         val text = StoryBackup.encode(listOf(entity))
         val restored = StoryBackup.decode(text).single().toActiveStory()
         assertTrue(restored.isSerial)
@@ -89,6 +89,7 @@ class ChronicleImportAndBackupTest {
         assertEquals(serial().sourceArchive, restored.sourceArchive)
         assertEquals("family", restored.config.category.id)
         assertEquals(serial().chapters, restored.chapters)
+        assertEquals("Leon treba pronaći mjesečevu pećinu.", restored.nextChapterGuidance)
         assertFalse(text.contains("verifier"))
         assertFalse(text.contains("api_key"))
         assertThrows(Exception::class.java) { StoryBackup.decode("{\"stories\":[]}") }
@@ -106,13 +107,15 @@ class ChronicleImportAndBackupTest {
                 old.heroName, old.heroTypeId, old.storyLengthId, old.themeOrItem, old.targetMoral, old.chaptersJson, old.createdAt))
             db.version = 1
         }
-        val db = Room.databaseBuilder(context, AppDatabase::class.java, name).addMigrations(AppDatabase.MIGRATION_1_2).build()
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3).build()
         try {
             val dao = db.storyDao()
             val preserved = dao.getStoryById(1)!!
             assertEquals("Zejdova avantura", preserved.title)
             assertFalse(preserved.isSerial)
             assertEquals("", preserved.chronicle)
+            assertEquals("", preserved.nextChapterGuidance)
             val imported = StoryEntity.fromActiveStory(serial()).copy(createdAt = 1234L)
             assertEquals(1, dao.restoreStories(listOf(imported)))
             assertEquals(0, dao.restoreStories(listOf(imported)))
@@ -154,7 +157,10 @@ class ChronicleImportAndBackupTest {
     }
 
     @Test fun continuationUsesChronicleAndLastTwoChaptersAndReturnsUpdatedMemoryTogether() = runBlocking {
-        val story = serial().copy(chapters = (1..5).map { Chapter(it, "Dan $it", "Događaj broj $it.", "Dobrota.") })
+        val story = serial().copy(
+            chapters = (1..5).map { Chapter(it, "Dan $it", "Događaj broj $it.", "Dobrota.") },
+            nextChapterGuidance = "Leon treba pronaći mjesečevu pećinu, bez strašnih scena."
+        )
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         val service = service { prompt ->
             assertTrue(prompt.contains(story.chronicle))
@@ -162,6 +168,8 @@ class ChronicleImportAndBackupTest {
             assertFalse(prompt.contains("Događaj broj 1"))
             assertFalse(prompt.contains(story.sourceArchive))
             assertTrue(prompt.contains("SEDAM"))
+            assertTrue(prompt.contains("ŽELJE RODITELJA ZA SLJEDEĆE POGLAVLJE"))
+            assertTrue(prompt.contains(story.nextChapterGuidance))
             JSONObject().put("storyText", "Zejd je zajedno s Hanom otključao kapiju.").put("chapterTitle", "Kapija")
                 .put("updatedChronicle", "Hana je Zejdova sestra. Plavi ključ je otvorio kapiju.")
         }
@@ -171,8 +179,25 @@ class ChronicleImportAndBackupTest {
             assertEquals(6, updated.chapters.last().chapterNumber)
             assertTrue(updated.isSaved)
             assertEquals(updated.chronicle, db.storyDao().getStoryById(updated.id)!!.chronicle)
+            assertEquals("", updated.nextChapterGuidance)
+            assertEquals("", db.storyDao().getStoryById(updated.id)!!.nextChapterGuidance)
+            assertEquals("Leon treba pronaći mjesečevu pećinu, bez strašnih scena.", story.nextChapterGuidance)
             assertEquals(5, story.chapters.size)
             assertFalse(updated.chapters.last().isFinalChapter)
+        } finally { db.close() }
+    }
+
+    @Test fun failedContinuationKeepsSavedParentGuidance() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val draft = serial().copy(nextChapterGuidance = "Neka Hana upozna prijateljsku sovu.")
+            val repo = StoryRepository(db.storyDao(), service {
+                JSONObject().put("storyText", "Nedovršeno poglavlje bez kronike")
+            })
+            val id = repo.saveStory(draft)
+            try { repo.continueSerial(draft.copy(id = id)); fail("Continuation must fail") }
+            catch (_: JSONException) { }
+            assertEquals(draft.nextChapterGuidance, db.storyDao().getStoryById(id)!!.nextChapterGuidance)
         } finally { db.close() }
     }
 

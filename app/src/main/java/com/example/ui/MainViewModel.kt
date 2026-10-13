@@ -164,6 +164,32 @@ class MainViewModel @JvmOverloads constructor(application: Application,
         }
     }
 
+    fun updateNextChapterGuidance(text: String) {
+        val current = _activeStory.value ?: return
+        if (!current.isSerial || _isGenerating.value) return
+        val guidance = text.take(1_000)
+        val updated = current.copy(nextChapterGuidance = guidance)
+        _activeStory.value = updated
+        guidanceSaveJob?.cancel()
+        guidanceSaveJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(450)
+            val latest = _activeStory.value
+            if (latest?.id != updated.id || latest.nextChapterGuidance != guidance) return@launch
+            try {
+                val id = repository.saveStory(updated)
+                if (_activeStory.value?.nextChapterGuidance == guidance) {
+                    _activeStory.value = updated.copy(id = id, isSaved = true)
+                }
+                scheduleCloudUpload()
+            } catch (_: Exception) {
+                _errorMessage.value = _appLanguage.value.text(
+                    "Upute za sljedeće poglavlje nisu spremljene.",
+                    "Die Wünsche für das nächste Kapitel konnten nicht gespeichert werden."
+                )
+            }
+        }
+    }
+
     fun saveChronicle(text: String) {
         val current = _activeStory.value ?: return
         if (!current.isSerial || _isGenerating.value || text.isBlank() || text.length > 22_000) return
@@ -294,6 +320,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
     private val _appLanguage = MutableStateFlow(languagePreferences.get())
     val appLanguage = _appLanguage.asStateFlow()
     private var generationJob: Job? = null
+    private var guidanceSaveJob: Job? = null
     private var generationReturnScreen: AppScreen = AppScreen.Setup
 
     fun setAppLanguage(language: AppLanguage) {

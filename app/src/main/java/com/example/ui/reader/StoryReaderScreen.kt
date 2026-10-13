@@ -91,6 +91,7 @@ fun StoryReaderScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
     onContinueSerial: () -> Unit = {},
+    onNextChapterGuidanceChange: (String) -> Unit = {},
     onSaveChronicle: (String) -> Unit = {},
     storyProvider: AiProvider = AiProvider.GEMINI,
     onStoryProviderChange: (AiProvider) -> Unit = {},
@@ -214,6 +215,7 @@ fun StoryReaderScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
+                .imePadding()
                 .testTag("story_reader_content"),
             contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp)
         ) {
@@ -762,6 +764,50 @@ fun StoryReaderScreen(
                         Text(ui.text("Sljedeće večernje poglavlje", "Das nächste Abendkapitel"), style = MaterialTheme.typography.titleLarge)
                         Text(ui.text("AI nastavlja radnju uz sačuvanu kroniku i poznate likove. Oko 7 minuta čitanja; nastavak se automatski sprema.",
                             "Die KI setzt die Handlung mit Chronik und vertrauten Figuren fort. Etwa 7 Minuten Vorlesezeit; das Kapitel wird automatisch gespeichert."))
+                        Card(
+                            shape = RoundedCornerShape(22.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isNightMode) MagicPurple.copy(alpha = 0.16f)
+                                else MagicPurpleLight.copy(alpha = 0.36f)
+                            ),
+                            border = BorderStroke(1.5.dp, MagicGold.copy(alpha = 0.75f)),
+                            modifier = Modifier.fillMaxWidth().testTag("next_chapter_guidance_card")
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                                Text(
+                                    ui.text("Upute za sljedeće poglavlje", "Wünsche für das nächste Kapitel"),
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = if (isNightMode) MagicGoldLight else MagicPurple
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    ui.text(
+                                        "Napiši šta želiš da se dogodi u sljedećem nastavku. Ovo polje nije obavezno.",
+                                        "Beschreibe, was im nächsten Kapitel geschehen soll. Dieses Feld ist optional."
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                OutlinedTextField(
+                                    value = story.nextChapterGuidance,
+                                    onValueChange = { onNextChapterGuidanceChange(it.take(1_000)) },
+                                    label = { Text(ui.text("Moje želje za nastavak", "Meine Wünsche für die Fortsetzung")) },
+                                    placeholder = {
+                                        Text(ui.text(
+                                            "Npr. Leon pronalazi tajnu pećinu, ali priča ostaje mirna i bez strašnih scena.",
+                                            "Z. B. Leon findet eine geheime Höhle, aber die Geschichte bleibt ruhig und ohne gruselige Szenen."
+                                        ))
+                                    },
+                                    supportingText = {
+                                        Text("${story.nextChapterGuidance.length} / 1000")
+                                    },
+                                    minLines = 4,
+                                    maxLines = 7,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.fillMaxWidth().testTag("next_chapter_guidance_input")
+                                )
+                            }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AiProvider.entries.forEach { provider -> FilterChip(storyProvider == provider,
                                 onClick = { onStoryProviderChange(provider) }, label = { Text(provider.label) },

@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [StoryEntity::class, StoryArchivePart::class], version = 2, exportSchema = false)
+@Database(entities = [StoryEntity::class, StoryArchivePart::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun storyDao(): StoryDao
 
@@ -21,6 +21,11 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_story_archive_parts_storyId ON story_archive_parts(storyId)")
             }
         }
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE saved_stories ADD COLUMN nextChapterGuidance TEXT NOT NULL DEFAULT ''")
+            }
+        }
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -31,7 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "svijet_snova_database"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                 INSTANCE = instance
                 instance

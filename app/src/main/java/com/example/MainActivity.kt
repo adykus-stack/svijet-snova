@@ -278,6 +278,7 @@ class MainActivity : ComponentActivity() {
                                                 onOpenSettings = { viewModel.navigateTo(AppScreen.Settings) },
                                                 onBackClick = { viewModel.navigateBack() },
                                                 onContinueSerial = viewModel::continueSerial,
+                                                onNextChapterGuidanceChange = viewModel::updateNextChapterGuidance,
                                                 onSaveChronicle = viewModel::saveChronicle,
                                                 storyProvider = storyProvider, onStoryProviderChange = viewModel::setStoryProvider,
                                                 playbackSpeed = playbackSpeed,

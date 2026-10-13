@@ -18,6 +18,8 @@ Autor priče (Gemini ili OpenAI) bira se na ekranu **Prilagodi priču**, uz uzra
 
 Brzina AI čitanja može se mijenjati od **0,75× do 1,25×** u Postavkama ili direktno u čitaču. Početna brzina je 0,90×. Promjena brzine ne šalje novi API zahtjev i ne mijenja brzinu pozadinske muzike. Offline glas uređaja više nije ponuđen: ako Gemini ili OpenAI glas nije dostupan, čitanje se zaustavlja i prikazuje razlog.
 
+Kod spremljene serije u kategoriji **Naša porodična priča** roditelj može upisati do 1.000 znakova u polje **Upute za sljedeće poglavlje**. Nacrt se čuva uz tu seriju i uključuje u Google sinkronizaciju. AI ga koristi zajedno s kronikom i posljednja dva poglavlja, ali ga briše tek nakon uspješno stvorenog nastavka; nakon prekida ili greške upute ostaju sačuvane.
+
 ## Postojeća serija iz ChatGPT-a
 
 1. Preuzmi ZIP izvoz podataka sa ChatGPT računa na kojem je serija nastajala.

@@ -12,7 +12,8 @@ object StoryBackup {
                 .put("categoryId", s.categoryId).put("ageGroupId", s.ageGroupId).put("heroName", s.heroName)
                 .put("heroTypeId", s.heroTypeId).put("storyLengthId", s.storyLengthId).put("themeOrItem", s.themeOrItem)
                 .put("targetMoral", s.targetMoral).put("chapters", JSONArray(s.chaptersJson)).put("createdAt", s.createdAt)
-                .put("chronicle", s.chronicle).put("sourceArchive", s.sourceArchive).put("isSerial", s.isSerial)) }
+                .put("chronicle", s.chronicle).put("sourceArchive", s.sourceArchive).put("isSerial", s.isSerial)
+                .put("nextChapterGuidance", s.nextChapterGuidance)) }
         }).toString()
 
     fun decode(text: String): List<StoryEntity> {
@@ -35,7 +36,8 @@ object StoryBackup {
                 ageGroupId = s.getString("ageGroupId"), heroName = s.getString("heroName"), heroTypeId = s.getString("heroTypeId"),
                 storyLengthId = s.getString("storyLengthId"), themeOrItem = s.getString("themeOrItem"), targetMoral = s.getString("targetMoral"),
                 chaptersJson = chapters.toString(), createdAt = s.getLong("createdAt"), chronicle = s.optString("chronicle"),
-                sourceArchive = s.optString("sourceArchive"), isSerial = s.optBoolean("isSerial"))
+                sourceArchive = s.optString("sourceArchive"), isSerial = s.optBoolean("isSerial"),
+                nextChapterGuidance = s.optString("nextChapterGuidance").take(1_000))
         }
     }
 }

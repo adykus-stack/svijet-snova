@@ -120,14 +120,20 @@ class ChronicleSettingsUiTest {
     }
 
     @Test fun importedSeriesOffersAutomaticContinuationAndEditableMemory() {
-        val story = ActiveStory(title = "Porodična priča", config = StoryCreationConfig(category = StoryCategories.family),
+        var story by mutableStateOf(ActiveStory(title = "Porodična priča", config = StoryCreationConfig(category = StoryCategories.family),
             chapters = listOf(Chapter(1, "Početak", "Hana je našla ključ.", "Dobrota.")), chronicle = "Hana je sestra.", isSerial = true)
+        )
         var continuations = 0
         var savedMemory: String? = null
         content { StoryReaderScreen(story, TtsState.IDLE, AudioEngineType.GEMINI_NATURAL, GeminiVoices.VOICE_AOEDE,
             null, false, true, { _, _, _ -> }, MusicSettings(), NarrationProgress(), {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {},
-            true, {}, {}, onContinueSerial = { continuations++ }, onSaveChronicle = { savedMemory = it }) }
+            true, {}, {}, onContinueSerial = { continuations++ },
+            onNextChapterGuidanceChange = { story = story.copy(nextChapterGuidance = it) },
+            onSaveChronicle = { savedMemory = it }) }
         compose.onNodeWithTag("story_reader_content").performScrollToIndex(1)
+        compose.onNodeWithTag("next_chapter_guidance_input").performTextInput("Leon treba pronaći pećinu.")
+        compose.runOnIdle { assertEquals("Leon treba pronaći pećinu.", story.nextChapterGuidance) }
+        compose.onNodeWithText("26 / 1000").assertIsDisplayed()
         compose.onNodeWithTag("continue_serial_story").performClick()
         compose.runOnIdle { assertEquals(1, continuations) }
         compose.onNodeWithTag("custom_idea_toggle").assertDoesNotExist()

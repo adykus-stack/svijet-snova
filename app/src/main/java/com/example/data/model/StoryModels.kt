@@ -299,5 +299,6 @@ data class ActiveStory(
     val createdAt: Long = System.currentTimeMillis(),
     val chronicle: String = "",
     val sourceArchive: String = "",
-    val isSerial: Boolean = false
+    val isSerial: Boolean = false,
+    val nextChapterGuidance: String = ""
 )

@@ -24,7 +24,8 @@ data class StoryEntity(
     val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(defaultValue = "''") val chronicle: String = "",
     @ColumnInfo(defaultValue = "''") val sourceArchive: String = "",
-    @ColumnInfo(defaultValue = "0") val isSerial: Boolean = false
+    @ColumnInfo(defaultValue = "0") val isSerial: Boolean = false,
+    @ColumnInfo(defaultValue = "''") val nextChapterGuidance: String = ""
 ) {
     fun toActiveStory(): ActiveStory {
         val parsedChapters = mutableListOf<Chapter>()
@@ -99,7 +100,8 @@ data class StoryEntity(
             currentChapterIndex = if (parsedChapters.isNotEmpty()) parsedChapters.size - 1 else 0,
             isSaved = true,
             createdAt = createdAt,
-            chronicle = chronicle, sourceArchive = sourceArchive, isSerial = isSerial
+            chronicle = chronicle, sourceArchive = sourceArchive, isSerial = isSerial,
+            nextChapterGuidance = nextChapterGuidance
         )
     }
 
@@ -145,7 +147,8 @@ data class StoryEntity(
                 targetMoral = story.config.targetMoral,
                 chaptersJson = jsonArray.toString(),
                 createdAt = story.createdAt,
-                chronicle = story.chronicle, sourceArchive = story.sourceArchive, isSerial = story.isSerial
+                chronicle = story.chronicle, sourceArchive = story.sourceArchive, isSerial = story.isSerial,
+                nextChapterGuidance = story.nextChapterGuidance
             )
         }
     }

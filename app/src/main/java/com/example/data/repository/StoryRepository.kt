@@ -49,10 +49,12 @@ class StoryRepository(
 
     suspend fun continueSerial(story: ActiveStory): ActiveStory {
         require(story.isSerial && story.chronicle.isNotBlank())
-        val response = geminiService.generateSerialChapter(story)
+        val guidance = story.nextChapterGuidance.trim().take(1_000)
+        val response = geminiService.generateSerialChapter(story, parentGuidance = guidance)
         currentCoroutineContext().ensureActive()
         val updated = story.copy(chapters = story.chapters + response.chapter,
-            currentChapterIndex = story.chapters.size, chronicle = response.updatedChronicle!!)
+            currentChapterIndex = story.chapters.size, chronicle = response.updatedChronicle!!,
+            nextChapterGuidance = "")
         val id = saveStory(updated)
         return updated.copy(id = id, isSaved = true)
     }
