@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.importing.*
+import com.example.data.cloud.CloudPayloadCodec
 import com.example.data.local.*
 import com.example.data.model.*
 import com.example.data.remote.*
@@ -34,6 +35,15 @@ class ChronicleImportAndBackupTest {
             .put("first", node("root", "user", "Zejd i njegova sestra Hana.", 1))
             .put("old", node("first", "assistant", "Odbačena radnja sa zmajem.", 9))
             .put("end", node("first", "assistant", "Hana je pronašla plavi ključ.", 2))))
+
+    @Test fun googlePayloadCodecPreservesLargeUnicodeBackups() {
+        val original = buildString {
+            repeat(20_000) { append("Leon, Hana i zmaj čuvaju mjesečevu kroniku — $it. 🐉🌙\n") }
+        }
+        val encoded = CloudPayloadCodec.encode(original)
+        assertEquals(original, CloudPayloadCodec.decode(encoded))
+        assertEquals(64, CloudPayloadCodec.sha256(encoded).length)
+    }
 
     @Test fun activeBranchIsChronologicalAndDiscardedRepliesAreNotImported() {
         val conversation = ChatGptImport.parse(export().toString()).single()

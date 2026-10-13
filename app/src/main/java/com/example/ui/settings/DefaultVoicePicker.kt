@@ -18,19 +18,17 @@ fun DefaultVoicePicker(voice: GeminiVoice, onChange: (GeminiVoice) -> Unit) {
         Text(ui.text("Početni glas za čitanje", "Standardstimme zum Vorlesen"), style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AiProvider.entries.forEach { provider ->
-                FilterChip(selected = !voice.isOfflineDevice && voice.provider == provider,
-                    onClick = { onChange(GeminiVoices.ALL_VOICES.first { !it.isOfflineDevice && it.provider == provider }) },
+                FilterChip(selected = voice.provider == provider,
+                    onClick = { onChange(GeminiVoices.ALL_VOICES.first { it.provider == provider }) },
                     label = { Text(provider.label) }, modifier = Modifier.testTag("voice_provider_${provider.name}"))
             }
-            FilterChip(selected = voice.isOfflineDevice, onClick = { onChange(GeminiVoices.VOICE_OFFLINE) },
-                label = { Text(ui.text("Telefon", "Gerät")) }, modifier = Modifier.testTag("voice_provider_OFFLINE"))
         }
         Box {
             OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth().testTag("default_voice_picker")) {
                 Text("${voice.emoji} ${voice.displayName}")
             }
             DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                GeminiVoices.ALL_VOICES.filter { if (voice.isOfflineDevice) it.isOfflineDevice else !it.isOfflineDevice && it.provider == voice.provider }
+                GeminiVoices.ALL_VOICES.filter { it.provider == voice.provider }
                     .forEach { item -> DropdownMenuItem(text = { Text("${item.emoji} ${item.displayName}") },
                         onClick = { onChange(item); expanded = false }) }
             }

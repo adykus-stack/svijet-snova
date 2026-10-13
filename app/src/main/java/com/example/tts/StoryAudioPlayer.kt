@@ -6,8 +6,6 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import com.example.data.model.*
 import com.example.data.remote.GeminiService
 import com.example.data.remote.OpenAiService
@@ -19,17 +17,16 @@ import kotlinx.coroutines.flow.*
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
-import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 enum class TtsState { IDLE, PREPARING, PLAYING, PAUSED, ERROR }
-enum class AudioEngineType { GEMINI_NATURAL, OPENAI_NATURAL, OFFLINE_DEVICE }
+enum class AudioEngineType { GEMINI_NATURAL, OPENAI_NATURAL }
 
 class StoryAudioPlayer(
     private val context: Context,
     private val speechGenerator: (suspend (String, StoryLanguage, String) -> Result<ByteArray>)? = null
-) : TextToSpeech.OnInitListener {
+) {
     private val prefs = context.getSharedPreferences("story_voice_prefs", Context.MODE_PRIVATE)
     private val appLanguagePreferences = AppLanguagePreferences(context)
     private val keys = AiKeyStore(context)
@@ -49,11 +46,8 @@ class StoryAudioPlayer(
             else if (change < 0) pause()
         }
     }
-    private val ttsReady = CompletableDeferred<Boolean>()
-    private var tts: TextToSpeech? = TextToSpeech(context.applicationContext, this)
     private var mediaPlayer: MediaPlayer? = null
     private var speechJob: Job? = null
-    private var offlineUtterance: Pair<String, CompletableDeferred<Boolean>>? = null
     private val paused = MutableStateFlow(false)
 
     private val _ttsState = MutableStateFlow(TtsState.IDLE)
@@ -65,6 +59,10 @@ class StoryAudioPlayer(
         GeminiVoices.getById(prefs.getString("selected_voice_id", GeminiVoices.VOICE_AOEDE.id).orEmpty())
     )
     val currentVoice = _currentVoice.asStateFlow()
+    private val _playbackSpeed = MutableStateFlow(
+        prefs.getFloat("playback_speed", 0.90f).coerceIn(MIN_SPEED, MAX_SPEED)
+    )
+    val playbackSpeed = _playbackSpeed.asStateFlow()
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage = _errorMessage.asStateFlow()
     private val _isPreviewing = MutableStateFlow(false)
@@ -85,29 +83,6 @@ class StoryAudioPlayer(
 
     private fun uiText(bs: String, de: String) = appLanguagePreferences.get().text(bs, de)
 
-    override fun onInit(status: Int) {
-        ttsReady.complete(status == TextToSpeech.SUCCESS)
-        if (status != TextToSpeech.SUCCESS) return
-        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) = Unit
-            override fun onDone(utteranceId: String?) = completeOffline(utteranceId, true)
-            override fun onStop(utteranceId: String?, interrupted: Boolean) = completeOffline(utteranceId, false)
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) = failOffline(utteranceId)
-            override fun onError(utteranceId: String?, errorCode: Int) = failOffline(utteranceId)
-        })
-    }
-
-    private fun completeOffline(id: String?, done: Boolean) {
-        scope.launch { offlineUtterance?.takeIf { it.first == id }?.second?.complete(done) }
-    }
-    private fun failOffline(id: String?) {
-        scope.launch {
-            offlineUtterance?.takeIf { it.first == id }?.second
-                ?.completeExceptionally(IOException(uiText("Glas uređaja nije dostupan.", "Die Gerätestimme ist nicht verfügbar.")))
-        }
-    }
-
     fun selectVoice(voice: GeminiVoice) {
         if (_currentVoice.value.id != voice.id) stop()
         _currentVoice.value = voice
@@ -119,6 +94,15 @@ class StoryAudioPlayer(
         prefs.edit().putBoolean("has_selected_voice_ever", value).apply()
     }
     fun clearError() { _errorMessage.value = null }
+
+    fun setPlaybackSpeed(speed: Float) {
+        val safe = speed.coerceIn(MIN_SPEED, MAX_SPEED)
+        _playbackSpeed.value = safe
+        prefs.edit().putFloat("playback_speed", safe).apply()
+        if (_ttsState.value == TtsState.PLAYING) mediaPlayer?.let { player ->
+            runCatching { player.playbackParams = player.playbackParams.setSpeed(safe) }
+        }
+    }
 
     fun setMusicEnabled(enabled: Boolean) = updateMusic(_musicSettings.value.copy(enabled = enabled))
     fun setMusicVolume(volume: Float) = updateMusic(_musicSettings.value.copy(volume = volume.coerceIn(0f, 0.60f)))
@@ -142,12 +126,8 @@ class StoryAudioPlayer(
         _audioEngine.value = engineFor(voice)
         _automaticMood.value = mood
         startSession(preview = false) {
-            var useOffline = voice.isOfflineDevice
             suspend fun prepare(index: Int): Clip {
-                if (useOffline) return Clip(null)
-                val clip = prepareClip(segments[index], langCode, voice)
-                if (clip.file == null) useOffline = true
-                return clip
+                return prepareClip(segments[index], langCode, voice)
             }
             // Only one paragraph is prefetched. Stop cancels both playback and that request.
             var prepared = async { prepare(0) }
@@ -209,24 +189,15 @@ class StoryAudioPlayer(
     private suspend fun playClip(clip: Clip, text: String, langCode: String) {
         awaitResumed()
         if (clip.file == null) {
-            _audioEngine.value = AudioEngineType.OFFLINE_DEVICE
-            if (clip.error != null) {
-                _errorMessage.value = uiText(
-                    "AI glas nije dostupan (${clip.error}). Nastavljam glasom uređaja.",
-                    "Die KI-Stimme ist nicht verfügbar (${clip.error}). Die Gerätestimme wird verwendet."
-                )
-            }
-            playOffline(text, langCode)
+            throw IOException(uiText(
+                "AI glas nije dostupan${clip.error?.let { " ($it)" }.orEmpty()}.",
+                "Die KI-Stimme ist nicht verfügbar${clip.error?.let { " ($it)" }.orEmpty()}."
+            ))
         } else {
             _audioEngine.value = engineFor(playingVoice)
             try { playWav(clip.file) }
             catch (e: CancellationException) { throw e }
-            catch (_: Exception) {
-                _errorMessage.value = uiText("Zvuk nije moguće pokrenuti. Nastavljam glasom uređaja.",
-                    "Der Ton konnte nicht abgespielt werden. Die Gerätestimme wird verwendet.")
-                _audioEngine.value = AudioEngineType.OFFLINE_DEVICE
-                playOffline(text, langCode)
-            }
+            catch (_: Exception) { throw IOException(uiText("Zvuk nije moguće pokrenuti.", "Der Ton konnte nicht abgespielt werden.")) }
         }
     }
 
@@ -244,6 +215,7 @@ class StoryAudioPlayer(
                         true
                     }
                     player.prepare()
+                    player.playbackParams = player.playbackParams.setSpeed(_playbackSpeed.value)
                     player.start()
                 } catch (e: Exception) {
                     if (continuation.isActive) continuation.resumeWithException(e)
@@ -252,33 +224,6 @@ class StoryAudioPlayer(
         } finally {
             if (mediaPlayer == player) mediaPlayer = null
             runCatching { player.release() }
-        }
-    }
-
-    private suspend fun playOffline(text: String, langCode: String) {
-        if (withTimeoutOrNull(10000) { ttsReady.await() } != true) {
-            throw IOException(uiText("Glas uređaja nije dostupan.", "Die Gerätestimme ist nicht verfügbar."))
-        }
-        val locale = if (langCode.equals("de", true)) Locale.GERMAN else {
-            val bosnian = Locale.forLanguageTag("bs-BA")
-            if ((tts?.isLanguageAvailable(bosnian) ?: -1) >= TextToSpeech.LANG_AVAILABLE) bosnian
-            else Locale.forLanguageTag("hr-HR")
-        }
-        tts?.language = locale
-        tts?.setPitch(1.05f)
-        tts?.setSpeechRate(0.92f)
-        while (true) {
-            awaitResumed()
-            val signal = CompletableDeferred<Boolean>()
-            val id = "paragraph_${System.nanoTime()}"
-            offlineUtterance = id to signal
-            if (tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) != TextToSpeech.SUCCESS) {
-                throw IOException(uiText("Glas uređaja nije dostupan.", "Die Gerätestimme ist nicht verfügbar."))
-            }
-            val completed = signal.await()
-            if (offlineUtterance?.first == id) offlineUtterance = null
-            if (completed) return
-            // Device TTS cannot seek; after Pause only the current paragraph is restarted.
         }
     }
 
@@ -312,8 +257,6 @@ class StoryAudioPlayer(
             } finally {
                 if (speechJob == coroutineContext.job) {
                     releaseVoicePlayer()
-                    offlineUtterance = null
-                    tts?.stop()
                     music.stop()
                     abandonFocus()
                     _isPreviewing.value = false
@@ -331,8 +274,6 @@ class StoryAudioPlayer(
         if (_ttsState.value != TtsState.PLAYING && _ttsState.value != TtsState.PREPARING) return
         paused.value = true
         mediaPlayer?.let { runCatching { if (it.isPlaying) it.pause() } }
-        offlineUtterance?.second?.complete(false)
-        tts?.stop()
         music.pause()
         abandonFocus()
         _ttsState.value = TtsState.PAUSED
@@ -341,7 +282,10 @@ class StoryAudioPlayer(
         if (_ttsState.value != TtsState.PAUSED) return
         if (!hasFocus && !requestFocus()) return
         paused.value = false
-        mediaPlayer?.let { runCatching { it.start() } }
+        mediaPlayer?.let { runCatching {
+            it.playbackParams = it.playbackParams.setSpeed(_playbackSpeed.value)
+            it.start()
+        } }
         music.resume()
         _ttsState.value = if (_progress.value.paragraph > 0) TtsState.PLAYING else TtsState.PREPARING
     }
@@ -350,8 +294,6 @@ class StoryAudioPlayer(
         speechJob = null
         oldJob?.cancel()
         releaseVoicePlayer()
-        offlineUtterance = null
-        tts?.stop()
         music.stop()
         abandonFocus()
         paused.value = false
@@ -371,7 +313,7 @@ class StoryAudioPlayer(
         val sample = if (langCode.equals("de", true)) "Willkommen in der Traumwelt! Ich bin dein Geschichtenerzähler."
             else "Dobrodošli u Svijet snova! Ja sam tvoj pripovjedač."
         startSession(preview = true) {
-            val clip = if (voice.isOfflineDevice) Clip(null) else prepareClip(sample, langCode, voice)
+            val clip = prepareClip(sample, langCode, voice)
             awaitResumed()
             _ttsState.value = TtsState.PLAYING
             playClip(clip, sample, langCode)
@@ -380,7 +322,6 @@ class StoryAudioPlayer(
     fun stopPreview() = stop()
 
     private fun engineFor(voice: GeminiVoice) = when {
-        voice.isOfflineDevice -> AudioEngineType.OFFLINE_DEVICE
         voice.provider == AiProvider.OPENAI -> AudioEngineType.OPENAI_NATURAL
         else -> AudioEngineType.GEMINI_NATURAL
     }
@@ -414,7 +355,11 @@ class StoryAudioPlayer(
     fun destroy() {
         stop()
         scope.cancel()
-        tts?.shutdown()
-        tts = null
+    }
+
+    companion object {
+        const val MIN_SPEED = 0.75f
+        const val MAX_SPEED = 1.25f
+        val SPEED_OPTIONS = listOf(0.75f, 0.85f, 0.90f, 1.00f, 1.10f, 1.25f)
     }
 }

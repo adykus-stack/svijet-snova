@@ -68,6 +68,8 @@ class MainActivity : ComponentActivity() {
             val isPreviewingVoice by viewModel.isPreviewingVoice.collectAsStateWithLifecycle()
             val musicSettings by viewModel.musicSettings.collectAsStateWithLifecycle()
             val narrationProgress by viewModel.narrationProgress.collectAsStateWithLifecycle()
+            val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
+            val cloudSync by viewModel.cloudSync.collectAsStateWithLifecycle()
             val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
             val parentKeys by viewModel.parentKeys.collectAsStateWithLifecycle()
             val storyProvider by viewModel.storyProvider.collectAsStateWithLifecycle()
@@ -182,10 +184,15 @@ class MainActivity : ComponentActivity() {
                                         onOpenParents = { showParentGate = true },
                                         onBack = { viewModel.navigateBack() },
                                         voice = currentVoice, onVoiceChange = viewModel::selectVoice,
+                                        playbackSpeed = playbackSpeed, onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
                                         onImport = { viewModel.navigateTo(AppScreen.Import) },
                                         onBackup = { backupPicker.launch("Svijet-snova-${java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(java.util.Date())}.json") },
                                         onRestore = { restorePicker.launch(arrayOf("application/json", "application/octet-stream")) },
-                                        backupBusy = backupBusy, backupMessage = backupMessage)
+                                        backupBusy = backupBusy, backupMessage = backupMessage,
+                                        cloudSyncState = cloudSync,
+                                        onGoogleSignIn = { viewModel.signInWithGoogle(this@MainActivity) },
+                                        onGoogleSync = viewModel::syncGoogleNow,
+                                        onGoogleSignOut = viewModel::signOutGoogle)
                                     AppScreen.Import -> StoryImportScreen(state = storyImport, provider = storyProvider,
                                         onPick = { importPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/json", "application/octet-stream")) },
                                         onSelect = viewModel::selectImportConversation, onTitle = viewModel::setImportTitle,
@@ -272,7 +279,9 @@ class MainActivity : ComponentActivity() {
                                                 onBackClick = { viewModel.navigateBack() },
                                                 onContinueSerial = viewModel::continueSerial,
                                                 onSaveChronicle = viewModel::saveChronicle,
-                                                storyProvider = storyProvider, onStoryProviderChange = viewModel::setStoryProvider
+                                                storyProvider = storyProvider, onStoryProviderChange = viewModel::setStoryProvider,
+                                                playbackSpeed = playbackSpeed,
+                                                onPlaybackSpeedChange = viewModel::setPlaybackSpeed
                                             )
                                         } ?: run {
                                             // If no active story, return to home

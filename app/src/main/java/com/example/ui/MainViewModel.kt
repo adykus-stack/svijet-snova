@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.app.Activity
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
@@ -28,6 +29,7 @@ import kotlinx.coroutines.withContext
 import com.example.ui.theme.AppTheme
 import android.net.Uri
 import com.example.data.importing.*
+import com.example.data.cloud.GoogleCloudSync
 
 sealed interface AppScreen {
     data object Intro : AppScreen
@@ -47,6 +49,16 @@ data class ParentKeyState(
     val messageBs: String = "",
     val messageDe: String = "",
     val savedRevision: Int = 0
+)
+
+data class CloudSyncState(
+    val configured: Boolean = false,
+    val signedIn: Boolean = false,
+    val busy: Boolean = false,
+    val displayName: String = "",
+    val email: String = "",
+    val messageBs: String = "",
+    val messageDe: String = ""
 )
 
 data class StoryImportState(val conversations: List<ChatConversation> = emptyList(), val selectedIndex: Int = 0,
@@ -129,6 +141,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
                 _creationConfig.value = story.config
                 _storyImport.value = StoryImportState()
                 _currentScreen.value = AppScreen.Reader
+                scheduleCloudUpload()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 _errorMessage.value = (e.message ?: "Uvoz nije uspio / Import fehlgeschlagen") + _appLanguage.value.text(
@@ -147,6 +160,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
             coroutineContext.ensureActive()
             _activeStory.value = updated
             _currentScreen.value = AppScreen.Reader
+            scheduleCloudUpload()
         }
     }
 
@@ -158,6 +172,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
                 val updated = current.copy(chronicle = text)
                 val id = repository.saveStory(updated)
                 _activeStory.value = updated.copy(id = id, isSaved = true)
+                scheduleCloudUpload()
             } catch (_: Exception) { _errorMessage.value = _appLanguage.value.text("Kronika nije spremljena.", "Chronik konnte nicht gespeichert werden.") }
         }
     }
@@ -184,6 +199,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
             _restorePreview.value = null
             _backupMessage.value = _appLanguage.value.text("Dodano priča: $added. Postojeće priče su sačuvane.",
                 "$added Geschichten hinzugefügt. Bestehende Geschichten bleiben erhalten.")
+            scheduleCloudUpload()
         }
     }
     private fun documentOperation(operation: suspend () -> Unit) {
@@ -203,6 +219,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
     fun setStoryProvider(provider: AiProvider) {
         aiPreferences.setStoryProvider(provider)
         _storyProvider.value = provider
+        scheduleCloudUpload()
     }
 
     fun openParentSettings() {
@@ -282,6 +299,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
     fun setAppLanguage(language: AppLanguage) {
         languagePreferences.set(language)
         _appLanguage.value = language
+        scheduleCloudUpload()
     }
 
     private val repository = StoryRepository(
@@ -291,6 +309,21 @@ class MainViewModel @JvmOverloads constructor(application: Application,
             apiKeyProvider = { keys.read(AiProvider.GEMINI) })
     )
 
+    private val googleCloud = GoogleCloudSync(application)
+    private val googleConfigured = googleCloud.isConfigured()
+    private val initialGoogleAccount = googleCloud.currentAccount()
+    private var cloudJob: Job? = null
+    private var applyingCloudSettings = false
+    private val _cloudSync = MutableStateFlow(CloudSyncState(
+        configured = googleConfigured,
+        signedIn = initialGoogleAccount != null,
+        displayName = initialGoogleAccount?.displayName.orEmpty(),
+        email = initialGoogleAccount?.email.orEmpty(),
+        messageBs = if (googleConfigured) "" else "Za Google sinkronizaciju treba povezati Firebase projekt.",
+        messageDe = if (googleConfigured) "" else "Für die Google-Synchronisierung muss ein Firebase-Projekt verbunden werden."
+    ))
+    val cloudSync = _cloudSync.asStateFlow()
+
     val audioPlayer = StoryAudioPlayer(application)
     val ttsState: StateFlow<TtsState> = audioPlayer.ttsState
     val audioEngine: StateFlow<AudioEngineType> = audioPlayer.audioEngine
@@ -299,10 +332,119 @@ class MainViewModel @JvmOverloads constructor(application: Application,
     val isPreviewingVoice: StateFlow<Boolean> = audioPlayer.isPreviewing
     val musicSettings: StateFlow<MusicSettings> = audioPlayer.musicSettings
     val narrationProgress: StateFlow<NarrationProgress> = audioPlayer.progress
+    val playbackSpeed: StateFlow<Float> = audioPlayer.playbackSpeed
 
-    fun setMusicEnabled(enabled: Boolean) = audioPlayer.setMusicEnabled(enabled)
-    fun setMusicVolume(volume: Float) = audioPlayer.setMusicVolume(volume)
-    fun selectMusic(mood: MusicMood?) = audioPlayer.selectMusic(mood)
+    fun setMusicEnabled(enabled: Boolean) { audioPlayer.setMusicEnabled(enabled); scheduleCloudUpload() }
+    fun setMusicVolume(volume: Float) { audioPlayer.setMusicVolume(volume); scheduleCloudUpload() }
+    fun selectMusic(mood: MusicMood?) { audioPlayer.selectMusic(mood); scheduleCloudUpload() }
+    fun setPlaybackSpeed(speed: Float) { audioPlayer.setPlaybackSpeed(speed); scheduleCloudUpload() }
+
+    fun signInWithGoogle(activity: Activity) {
+        if (_cloudSync.value.busy) return
+        if (!googleConfigured) {
+            _cloudSync.value = _cloudSync.value.copy(
+                messageBs = "Google sinkronizacija još nije povezana s Firebase projektom.",
+                messageDe = "Die Google-Synchronisierung ist noch nicht mit einem Firebase-Projekt verbunden."
+            )
+            return
+        }
+        cloudJob?.cancel()
+        cloudJob = viewModelScope.launch {
+            _cloudSync.value = _cloudSync.value.copy(busy = true, messageBs = "", messageDe = "")
+            try {
+                val account = googleCloud.signIn(activity)
+                _cloudSync.value = CloudSyncState(true, true, true, account.displayName, account.email)
+                performCloudSync()
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                _cloudSync.value = _cloudSync.value.copy(busy = false,
+                    messageBs = "Google prijava ili sinkronizacija nije uspjela. Provjeri internet i pokušaj ponovo.",
+                    messageDe = "Google-Anmeldung oder Synchronisierung fehlgeschlagen. Prüfe das Internet und versuche es erneut.")
+            }
+        }
+    }
+
+    fun syncGoogleNow() {
+        if (!_cloudSync.value.signedIn || _cloudSync.value.busy) return
+        cloudJob?.cancel()
+        cloudJob = viewModelScope.launch {
+            _cloudSync.value = _cloudSync.value.copy(busy = true, messageBs = "", messageDe = "")
+            try { performCloudSync() }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                _cloudSync.value = _cloudSync.value.copy(busy = false,
+                    messageBs = "Sinkronizacija nije uspjela. Lokalne priče su ostale sačuvane.",
+                    messageDe = "Synchronisierung fehlgeschlagen. Lokale Geschichten bleiben erhalten.")
+            }
+        }
+    }
+
+    fun signOutGoogle() {
+        cloudJob?.cancel()
+        cloudJob = viewModelScope.launch {
+            _cloudSync.value = _cloudSync.value.copy(busy = true)
+            try { googleCloud.signOut() } finally {
+                _cloudSync.value = CloudSyncState(configured = googleConfigured,
+                    messageBs = "Google račun je odspojen. Priče na telefonu nisu obrisane.",
+                    messageDe = "Google-Konto getrennt. Geschichten auf dem Telefon wurden nicht gelöscht.")
+            }
+        }
+    }
+
+    private suspend fun performCloudSync() {
+        googleCloud.download()?.let { remote ->
+            repository.restore(remote.backup)
+            applyCloudSettings(remote.settings)
+        }
+        googleCloud.upload(repository.backup(), cloudSettings())
+        _cloudSync.value = _cloudSync.value.copy(busy = false,
+            messageBs = "Google sinkronizacija je završena.",
+            messageDe = "Google-Synchronisierung abgeschlossen.")
+    }
+
+    private fun scheduleCloudUpload() {
+        if (applyingCloudSettings || !_cloudSync.value.signedIn) return
+        cloudJob?.cancel()
+        cloudJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(1_500)
+            try { googleCloud.upload(repository.backup(), cloudSettings()) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                _cloudSync.value = _cloudSync.value.copy(
+                    messageBs = "Automatska sinkronizacija će pokušati ponovo kasnije.",
+                    messageDe = "Die automatische Synchronisierung versucht es später erneut.")
+            }
+        }
+    }
+
+    private fun cloudSettings(): Map<String, Any?> = mapOf(
+        "appLanguage" to _appLanguage.value.code,
+        "storyProvider" to _storyProvider.value.name,
+        "voiceId" to currentVoice.value.id,
+        "playbackSpeed" to playbackSpeed.value.toDouble(),
+        "musicEnabled" to musicSettings.value.enabled,
+        "musicVolume" to musicSettings.value.volume.toDouble(),
+        "musicMood" to musicSettings.value.selectedMood?.code.orEmpty()
+    )
+
+    private fun applyCloudSettings(settings: Map<String, Any?>) {
+        applyingCloudSettings = true
+        try {
+            (settings["appLanguage"] as? String)?.let { code ->
+                AppLanguage.fromCode(code).also { languagePreferences.set(it); _appLanguage.value = it }
+            }
+            (settings["storyProvider"] as? String)?.let { value ->
+                runCatching { AiProvider.valueOf(value) }.getOrNull()?.also {
+                    aiPreferences.setStoryProvider(it); _storyProvider.value = it
+                }
+            }
+            (settings["voiceId"] as? String)?.let { audioPlayer.selectVoice(GeminiVoices.getById(it)) }
+            (settings["playbackSpeed"] as? Number)?.let { audioPlayer.setPlaybackSpeed(it.toFloat()) }
+            (settings["musicEnabled"] as? Boolean)?.let { audioPlayer.setMusicEnabled(it) }
+            (settings["musicVolume"] as? Number)?.let { audioPlayer.setMusicVolume(it.toFloat()) }
+            (settings["musicMood"] as? String)?.let { audioPlayer.selectMusic(MusicMood.fromCode(it)) }
+        } finally { applyingCloudSettings = false }
+    }
 
     val savedStories: StateFlow<List<StoryEntity>> = repository.allSavedStories
         .stateIn(
@@ -310,6 +452,10 @@ class MainViewModel @JvmOverloads constructor(application: Application,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    init {
+        if (initialGoogleAccount != null) syncGoogleNow()
+    }
 
     private val _currentScreen = MutableStateFlow<AppScreen>(AppScreen.Intro)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
@@ -488,6 +634,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
         viewModelScope.launch {
             val savedId = repository.saveStory(current)
             _activeStory.value = current.copy(id = savedId, isSaved = true)
+            scheduleCloudUpload()
         }
     }
 
@@ -497,6 +644,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
             if (_activeStory.value?.id == id) {
                 _activeStory.value = _activeStory.value?.copy(isSaved = false, id = 0L)
             }
+            scheduleCloudUpload()
         }
     }
 
@@ -526,6 +674,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
 
     fun selectVoice(voice: GeminiVoice) {
         audioPlayer.selectVoice(voice)
+        scheduleCloudUpload()
     }
 
     fun previewVoice(voice: GeminiVoice, langCode: String) {
@@ -534,7 +683,6 @@ class MainViewModel @JvmOverloads constructor(application: Application,
     }
 
     private fun voiceKeyAvailable(voice: GeminiVoice): Boolean {
-        if (voice.isOfflineDevice) return true
         if (runCatching { keys.read(voice.provider).isNotBlank() }.getOrDefault(false)) return true
         _errorMessage.value = _appLanguage.value.text(
             "Dodaj ${voice.provider.label} API ključ u roditeljskom nadzoru za ovaj glas.",
@@ -556,6 +704,7 @@ class MainViewModel @JvmOverloads constructor(application: Application,
 
     override fun onCleared() {
         super.onCleared()
+        cloudJob?.cancel()
         audioPlayer.destroy()
     }
 }

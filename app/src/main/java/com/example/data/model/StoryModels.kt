@@ -175,11 +175,9 @@ data class GeminiVoice(
     val descriptionBs: String,
     val descriptionDe: String,
     val emoji: String,
-    val isOfflineDevice: Boolean = false,
     val provider: com.example.data.security.AiProvider = com.example.data.security.AiProvider.GEMINI
 ) {
     val name: String get() = id
-    val isOffline: Boolean get() = isOfflineDevice
 }
 
 object GeminiVoices {
@@ -243,17 +241,6 @@ object GeminiVoices {
         emoji = "🌙"
     )
 
-    val VOICE_OFFLINE = GeminiVoice(
-        id = "OFFLINE_DEVICE",
-        displayName = "Offline glas uređaja",
-        toneCategoryBs = "Ugrađeni Android glas",
-        toneCategoryDe = "Android-Gerätestimme",
-        descriptionBs = "Standardni sintisajzer govora tvog uređaja. Radi pouzdano i bez internetske veze.",
-        descriptionDe = "Standardsynthese des Geräts. Funktioniert offline ohne Internet.",
-        emoji = "📱",
-        isOfflineDevice = true
-    )
-
     val openAiVoices = listOf("marin", "cedar", "coral", "nova", "onyx", "fable", "alloy", "ash", "ballad", "echo", "sage", "shimmer", "verse").map { name ->
         GeminiVoice("openai:$name", "OpenAI · ${name.replaceFirstChar { it.uppercase() }}", "Prirodni AI glas", "Natürliche KI-Stimme",
             "OpenAI glas za čitanje priča. Probaj izgovor na jeziku svoje priče.",
@@ -266,8 +253,7 @@ object GeminiVoices {
         VOICE_CHARON,
         VOICE_FENRIR,
         VOICE_LEDA,
-        VOICE_KORE,
-        VOICE_OFFLINE
+        VOICE_KORE
     ) + openAiVoices
 
     val ALL_VOICES: List<GeminiVoice> get() = allVoices

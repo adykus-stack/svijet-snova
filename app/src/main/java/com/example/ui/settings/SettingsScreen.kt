@@ -26,14 +26,18 @@ import com.example.ui.localization.*
 import com.example.ui.theme.*
 import com.example.data.model.GeminiVoice
 import com.example.data.model.GeminiVoices
+import com.example.ui.CloudSyncState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(language: AppLanguage, theme: AppTheme, onLanguageChange: (AppLanguage) -> Unit,
     onThemeChange: (AppTheme) -> Unit, onOpenParents: () -> Unit, onBack: () -> Unit,
     voice: GeminiVoice = GeminiVoices.VOICE_AOEDE, onVoiceChange: (GeminiVoice) -> Unit = {},
+    playbackSpeed: Float = 0.90f, onPlaybackSpeedChange: (Float) -> Unit = {},
     onImport: () -> Unit = {}, onBackup: () -> Unit = {}, onRestore: () -> Unit = {},
-    backupBusy: Boolean = false, backupMessage: String = "") {
+    backupBusy: Boolean = false, backupMessage: String = "",
+    cloudSyncState: CloudSyncState = CloudSyncState(), onGoogleSignIn: () -> Unit = {},
+    onGoogleSync: () -> Unit = {}, onGoogleSignOut: () -> Unit = {}) {
     val ui = LocalAppLanguage.current
     Scaffold(containerColor = Color.Transparent, contentColor = MaterialTheme.colorScheme.onBackground, topBar = {
         TopAppBar(title = { Text(ui.text("Postavke", "Einstellungen")) },
@@ -57,10 +61,12 @@ fun SettingsScreen(language: AppLanguage, theme: AppTheme, onLanguageChange: (Ap
                 Text("›", fontSize = 28.sp)
             }
             DefaultVoicePicker(voice, onVoiceChange)
+            PlaybackSpeedControl(playbackSpeed, onPlaybackSpeedChange)
             HorizontalDivider()
             OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth().testTag("open_story_import")) {
                 Text(ui.text("Uvezi priču iz ChatGPT-a", "Geschichte aus ChatGPT importieren"))
             }
+            GoogleSyncCard(cloudSyncState, onGoogleSignIn, onGoogleSync, onGoogleSignOut)
             Text(ui.text("Sigurnosna kopija na Google Drive", "Sicherung auf Google Drive"), style = MaterialTheme.typography.titleMedium)
             Text(ui.text("Pri spremanju izaberi Google Drive i svoj račun u sistemskom prozoru. Ako ga nema, instaliraj Drive i prijavi se. Kopija čuva priče, kronike i originalni razgovor. API ključevi, PIN i audio nisu uključeni. Kopiju pokrećeš ručno.",
                 "Wähle beim Speichern Google Drive und dein Konto im Systemfenster. Falls Drive fehlt, installiere es und melde dich an. Geschichten, Chroniken und das Originalgespräch werden gesichert. API-Schlüssel, PIN und Audio sind nicht enthalten. Du startest die Sicherung manuell."),

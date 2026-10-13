@@ -153,9 +153,9 @@ class BilingualStoryAndTtsTest {
     }
 
     @Test
-    fun `gemini voices contains all kid-friendly voices and offline device voice`() {
+    fun `voice list contains only AI voices and keeps Aoede as fallback`() {
         val voices = GeminiVoices.allVoices
-        assertTrue("Expected at least 7 voices", voices.size >= 7)
+        assertTrue("Expected Gemini and OpenAI voices", voices.size >= 6)
 
         val voiceIds = voices.map { it.id }
         assertTrue(voiceIds.contains("Aoede"))
@@ -164,11 +164,7 @@ class BilingualStoryAndTtsTest {
         assertTrue(voiceIds.contains("Fenrir"))
         assertTrue(voiceIds.contains("Leda"))
         assertTrue(voiceIds.contains("Kore"))
-        assertTrue(voiceIds.contains("OFFLINE_DEVICE"))
-
-        val offlineVoice = GeminiVoices.getById("OFFLINE_DEVICE")
-        assertTrue(offlineVoice.isOfflineDevice)
-        assertTrue(offlineVoice.isOffline)
+        assertFalse(voiceIds.contains("OFFLINE_DEVICE"))
 
         val defaultVoice = GeminiVoices.getById("unknown_voice_id")
         assertEquals("Aoede", defaultVoice.id)

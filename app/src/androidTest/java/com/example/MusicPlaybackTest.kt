@@ -30,6 +30,7 @@ class MusicPlaybackTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private lateinit var player: StoryAudioPlayer
     private lateinit var originalSettings: MusicSettings
+    private var originalSpeed = 0.90f
     private lateinit var languagePreferences: AppLanguagePreferences
     private lateinit var originalLanguage: com.example.ui.localization.AppLanguage
 
@@ -41,6 +42,7 @@ class MusicPlaybackTest {
             originalLanguage = languagePreferences.get()
             player = StoryAudioPlayer(compose.activity) { _, _, _ -> Result.success(silence()) }
             originalSettings = player.musicSettings.value
+            originalSpeed = player.playbackSpeed.value
             player.setMusicEnabled(true)
             player.setMusicVolume(0.30f)
             player.selectMusic(null)
@@ -54,8 +56,24 @@ class MusicPlaybackTest {
             player.setMusicEnabled(originalSettings.enabled)
             player.setMusicVolume(originalSettings.volume)
             player.selectMusic(originalSettings.selectedMood)
+            player.setPlaybackSpeed(originalSpeed)
             player.destroy()
             languagePreferences.set(originalLanguage)
+        }
+    }
+
+    @Test
+    fun playbackSpeedIsClampedAndPersistedWithoutChangingMusicVolume() {
+        compose.runOnIdle {
+            val volume = player.musicSettings.value.volume
+            player.setPlaybackSpeed(0.85f)
+            assertEquals(0.85f, player.playbackSpeed.value, 0.001f)
+            assertEquals(volume, player.musicSettings.value.volume, 0.001f)
+            player.setPlaybackSpeed(5f)
+            assertEquals(StoryAudioPlayer.MAX_SPEED, player.playbackSpeed.value, 0.001f)
+            val reloaded = StoryAudioPlayer(compose.activity) { _, _, _ -> Result.success(silence()) }
+            assertEquals(StoryAudioPlayer.MAX_SPEED, reloaded.playbackSpeed.value, 0.001f)
+            reloaded.destroy()
         }
     }
 

@@ -4,17 +4,19 @@ Android aplikacija za stvaranje i slušanje dječjih priča na bosanskom i njema
 
 ## Instalacija na telefon
 
-1. Otvori datoteku **Svijet-snova-1.3.apk** u ovom projektu (raniji `Svijet-snova.apk` ostaje prethodna verzija).
+1. Otvori datoteku **Svijet-snova-1.4.apk** u ovom projektu.
 2. Pritisni dugme za preuzimanje.
 3. Na telefonu otvori preuzetu datoteku i dozvoli instalaciju iz preglednika ako Android to zatraži.
 
-Verzija 1.3 ne ugrađuje privatne AI ključeve u APK. Svaki korisnik unosi vlastiti ključ unutar roditeljskih postavki na svom telefonu.
+Privatni AI ključevi nisu ugrađeni u APK. Svaki korisnik unosi vlastiti ključ unutar roditeljskih postavki na svom telefonu.
 
 ## Izgled i postavke
 
-U **Postavkama** (zupčanik) nalaze se jezik aplikacije, početni glas, roditeljski nadzor, uvoz ChatGPT priče, Google Drive kopija i tri teme: **Tamna**, **Svijetla** i **Mjesečina**. Svako novo pokretanje aplikacije počinje tamnom temom. Jedanaest kategorija prikazano je kao svjetlucavi oblačići, po dvije u redu, uključujući **Naša porodična priča**. Ako izabrana kategorija ima sačuvane priče, dugme **Otvori priče iz ove kategorije** vodi do njih.
+U **Postavkama** (zupčanik) nalaze se jezik aplikacije, početni AI glas, brzina čitanja, opcionalna Google sinkronizacija, roditeljski nadzor, uvoz ChatGPT priče, ručna Google Drive kopija i tri teme: **Tamna**, **Svijetla** i **Mjesečina**. Svako novo pokretanje aplikacije počinje tamnom temom. Jedanaest kategorija prikazano je kao svjetlucavi oblačići, po dvije u redu, uključujući **Naša porodična priča**. Ako izabrana kategorija ima sačuvane priče, dugme **Otvori priče iz ove kategorije** vodi do njih.
 
 Autor priče (Gemini ili OpenAI) bira se na ekranu **Prilagodi priču**, uz uzrast i jezik, prije dugmeta **Stvori moju priču**. Početni glas je Gemini Aoede; promjena glasa pamti se u Postavkama. Pružalac teksta i glasa mogu biti različiti.
+
+Brzina AI čitanja može se mijenjati od **0,75× do 1,25×** u Postavkama ili direktno u čitaču. Početna brzina je 0,90×. Promjena brzine ne šalje novi API zahtjev i ne mijenja brzinu pozadinske muzike. Offline glas uređaja više nije ponuđen: ako Gemini ili OpenAI glas nije dostupan, čitanje se zaustavlja i prikazuje razlog.
 
 ## Postojeća serija iz ChatGPT-a
 
@@ -34,6 +36,8 @@ Pri prvom ulasku u roditeljski nadzor kreiraj četverocifreni PIN i potvrdi ga. 
 
 ## Sigurnosna kopija preko Google Drivea
 
+Opcionalna prijava Google računom automatski sinkronizira spremljene priče, kronike, jezik, izabrani AI glas, brzinu čitanja i muzičke postavke. Podaci su odvojeni po prijavljenom korisniku. API ključevi, roditeljski PIN i generirani audio nikada se ne šalju. Za razvojnu instalaciju potrebno je povezati Firebase projekt, uključiti Google prijavu i Firestore, dodati `app/google-services.json` te objaviti pravila iz `firestore.rules`.
+
 U **Postavkama** pritisni **Spremi sigurnosnu kopiju** pa u Androidovom sistemskom prozoru izaberi **Google Drive** i svoj račun. Drive aplikacija treba biti instalirana i prijavljena da bi bila ponuđena. Ova ručna kopija čuva sve spremljene priče, kronike i originalne uvezene razgovore. Nema direktne Drive API prijave niti automatskog zakazivanja. Povezivanje koristi Androidov [Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files).
 
 Na drugom telefonu izaberi **Vrati kopiju s Google Drivea**, otvori kopiju i potvrdi dodavanje u biblioteku. Obnova ne briše postojeće priče i ne dodaje ponovo identične zapise. API ključevi, roditeljski PIN i generirani audio nisu u kopiji; na novom telefonu ključeve unesi ponovo. Baza se nadograđuje s verzije 1 na 2 migracijom koja čuva stare priče.
@@ -42,7 +46,7 @@ Na drugom telefonu izaberi **Vrati kopiju s Google Drivea**, otvori kopiju i pot
 
 1. U aplikaciji otvori **Postavke → Roditeljski nadzor** i kreiraj ili unesi svoj PIN.
 2. Izaberi **Gemini** ili **OpenAI**, zalijepi ključ i pritisni **Provjeri i spremi ključ**.
-3. Autora izaberi pri stvaranju priče; početni glas promijeni u Postavkama. Offline glas ne treba ključ.
+3. Autora izaberi pri stvaranju priče; početni AI glas i brzinu čitanja promijeni u Postavkama.
 
 Ključevi su šifrirani pomoću Android Keystore na telefonu. Ne prikazuju se nakon spremanja niti se uključuju u Android sigurnosnu kopiju/prijenos uređaja. Na drugom telefonu unesi ih ponovo. Možeš provjeriti, zamijeniti ili ukloniti pojedinačni ključ bez brisanja priča ili drugog ključa. Uklanjanje s telefona ne poništava ključ kod pružaoca. Zahtjevi za priče/prevod šalju se izabranom pružaocu priča, a tekst za čitanje izabranom pružaocu glasa.
 

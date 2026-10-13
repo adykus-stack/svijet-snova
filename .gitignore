@@ -18,3 +18,5 @@
 local.properties
 .env
 debug.keystore
+app/google-services (1).json
+verification-*/

@@ -49,6 +49,7 @@ import com.example.tts.AudioEngineType
 import com.example.tts.TtsState
 import com.example.ui.components.MagicButton
 import com.example.ui.theme.*
+import com.example.ui.settings.PlaybackSpeedControl
 import kotlinx.coroutines.launch
 import com.example.data.security.AiProvider
 
@@ -92,7 +93,9 @@ fun StoryReaderScreen(
     onContinueSerial: () -> Unit = {},
     onSaveChronicle: (String) -> Unit = {},
     storyProvider: AiProvider = AiProvider.GEMINI,
-    onStoryProviderChange: (AiProvider) -> Unit = {}
+    onStoryProviderChange: (AiProvider) -> Unit = {},
+    playbackSpeed: Float = 0.90f,
+    onPlaybackSpeedChange: (Float) -> Unit = {}
 ) {
     val ui = LocalAppLanguage.current
     val context = LocalContext.current
@@ -210,7 +213,8 @@ fun StoryReaderScreen(
             modifier = modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .testTag("story_reader_content"),
             contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp)
         ) {
             // Chapter Selection Bar (if multiple chapters exist)
@@ -340,14 +344,10 @@ fun StoryReaderScreen(
                         // Voice Indicator Banner & Selector Chip
                         Surface(
                             shape = RoundedCornerShape(14.dp),
-                            color = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) {
-                                MagicPurple.copy(alpha = if (isNightMode) 0.25f else 0.12f)
-                            } else {
-                                MagicMint.copy(alpha = if (isNightMode) 0.25f else 0.15f)
-                            },
+                            color = MagicPurple.copy(alpha = if (isNightMode) 0.25f else 0.12f),
                             border = BorderStroke(
                                 1.dp,
-                                if (audioEngine != AudioEngineType.OFFLINE_DEVICE) MagicPurple.copy(alpha = 0.35f) else MagicMint.copy(alpha = 0.45f)
+                                MagicPurple.copy(alpha = 0.35f)
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -366,32 +366,20 @@ fun StoryReaderScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) currentVoice.emoji else "📱",
+                                        text = currentVoice.emoji,
                                         fontSize = 18.sp
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Column {
                                         Text(
-                                            text = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) {
-                                                ui.text("${currentVoice.provider.label} AI glas: ${currentVoice.displayName}", "${currentVoice.provider.label}-KI-Stimme: ${currentVoice.displayName}")
-                                            } else {
-                                                ui.text("Offline glas uređaja", "Offline-Gerätestimme")
-                                            },
+                                            text = ui.text("${currentVoice.provider.label} AI glas: ${currentVoice.displayName}", "${currentVoice.provider.label}-KI-Stimme: ${currentVoice.displayName}"),
                                             style = MaterialTheme.typography.labelMedium.copy(
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) {
-                                                    if (isNightMode) MagicGoldLight else MagicPurple
-                                                } else {
-                                                    if (isNightMode) MagicMintLight else Color(0xFF065F46)
-                                                }
+                                                color = if (isNightMode) MagicGoldLight else MagicPurple
                                             )
                                         )
                                         Text(
-                                            text = if (audioEngine != AudioEngineType.OFFLINE_DEVICE) {
-                                                ui.text(currentVoice.toneCategoryBs, currentVoice.toneCategoryDe)
-                                            } else {
-                                                ui.text("Standardni TTS uređaja (bez interneta)", "Gerätestimme (ohne Internet)")
-                                            },
+                                            text = ui.text(currentVoice.toneCategoryBs, currentVoice.toneCategoryDe),
                                             style = MaterialTheme.typography.labelSmall.copy(
                                                 color = if (isNightMode) DreamNightTextSec else DreamDayTextSec
                                             )
@@ -427,6 +415,9 @@ fun StoryReaderScreen(
                                 }
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        PlaybackSpeedControl(playbackSpeed, onPlaybackSpeedChange, compact = true)
 
                         Spacer(modifier = Modifier.height(10.dp))
                         MusicControls(
@@ -1265,7 +1256,7 @@ fun VoiceSelectionBottomSheet(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = if (voice.isOfflineDevice) ui.text("Offline glas uređaja", "Offline-Gerätestimme") else voice.displayName,
+                                        text = voice.displayName,
                                         style = MaterialTheme.typography.titleMedium.copy(
                                             fontWeight = FontWeight.Bold,
                                             color = if (isNightMode) DreamNightText else DreamDayText
@@ -1273,13 +1264,13 @@ fun VoiceSelectionBottomSheet(
                                     )
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
-                                        color = if (voice.isOffline) MagicMint.copy(alpha = 0.2f) else MagicGold.copy(alpha = 0.2f)
+                                        color = MagicGold.copy(alpha = 0.2f)
                                     ) {
                                         Text(
                                             text = ui.text(voice.toneCategoryBs, voice.toneCategoryDe),
                                             style = MaterialTheme.typography.labelSmall.copy(
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = if (voice.isOffline) Color(0xFF047857) else Color(0xFFB45309)
+                                                color = Color(0xFFB45309)
                                             ),
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )

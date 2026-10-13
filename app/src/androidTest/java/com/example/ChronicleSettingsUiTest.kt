@@ -10,6 +10,7 @@ import com.example.data.importing.ChatConversation
 import com.example.data.model.*
 import com.example.data.security.*
 import com.example.ui.StoryImportState
+import com.example.ui.CloudSyncState
 import com.example.ui.parents.ParentGate
 import com.example.ui.settings.*
 import com.example.ui.setup.StorySetupScreen
@@ -75,17 +76,24 @@ class ChronicleSettingsUiTest {
 
     @Test fun settingsContainDefaultVoiceImportAndDriveControls() {
         var voice by mutableStateOf(GeminiVoices.VOICE_AOEDE)
+        var speed by mutableFloatStateOf(0.90f)
         var imports = 0
         content { SettingsScreen(AppLanguage.BOSNIAN, AppTheme.DARK, {}, {}, {}, {}, voice = voice,
-            onVoiceChange = { voice = it }, onImport = { imports++ }) }
+            onVoiceChange = { voice = it }, playbackSpeed = speed, onPlaybackSpeedChange = { speed = it },
+            onImport = { imports++ }, cloudSyncState = CloudSyncState(configured = true)) }
         compose.onNodeWithTag("voice_provider_GEMINI").performScrollTo().assertIsSelected()
         compose.onNodeWithTag("voice_provider_OPENAI").performClick()
         compose.runOnIdle { assertEquals(AiProvider.OPENAI, voice.provider) }
+        compose.onNodeWithTag("playback_speed_75").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(0.75f, speed, 0.001f) }
+        compose.onNodeWithTag("google_sync_card").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("google_sign_in").assertIsDisplayed()
         compose.onNodeWithTag("open_story_import").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, imports) }
         compose.onNodeWithTag("drive_backup").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("drive_restore").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("story_provider_GEMINI").assertDoesNotExist()
+        compose.onNodeWithText("Offline glas uređaja").assertDoesNotExist()
     }
 
     @Test fun creatorChoiceLivesOnTheStorySetupScreenAndDoesNotChangeVoice() {
@@ -119,10 +127,11 @@ class ChronicleSettingsUiTest {
         content { StoryReaderScreen(story, TtsState.IDLE, AudioEngineType.GEMINI_NATURAL, GeminiVoices.VOICE_AOEDE,
             null, false, true, { _, _, _ -> }, MusicSettings(), NarrationProgress(), {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {},
             true, {}, {}, onContinueSerial = { continuations++ }, onSaveChronicle = { savedMemory = it }) }
-        compose.onNodeWithTag("continue_serial_story").performScrollTo().performClick()
+        compose.onNodeWithTag("story_reader_content").performScrollToIndex(1)
+        compose.onNodeWithTag("continue_serial_story").performClick()
         compose.runOnIdle { assertEquals(1, continuations) }
         compose.onNodeWithTag("custom_idea_toggle").assertDoesNotExist()
-        compose.onNodeWithTag("open_chronicle").performScrollTo().performClick()
+        compose.onNodeWithTag("open_chronicle").performClick()
         compose.onNodeWithTag("chronicle_editor").performTextReplacement("Hana je Zejdova sestra.")
         compose.onNodeWithText("Sačuvaj", substring = false).performClick()
         compose.runOnIdle { assertEquals("Hana je Zejdova sestra.", savedMemory) }
